@@ -1,4 +1,4 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.talehto.voicealarmapp">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -15,6 +15,11 @@
       android:allowBackup="false"
       android:theme="@style/AppTheme"
       android:supportsRtl="true">
+      <receiver android:name=".alarm.AlarmReceiver"></receiver>
+      <service
+        android:name=".service.TTSService"
+        android:foregroundServiceType="mediaPlayback" 
+      />
       <activity
         android:name=".MainActivity"
         android:label="@string/app_name"
@@ -27,5 +32,7 @@
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
       </activity>
+      <activity android:name=".alarm.AlarmDialogActivity"
+        android:theme="@style/Theme.AppCompat.Dialog.Alert" />
     </application>
 </manifest>

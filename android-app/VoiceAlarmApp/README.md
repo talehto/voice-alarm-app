@@ -5,7 +5,14 @@ This is a new [**React Native**](https://reactnative.dev) project, bootstrapped 
 ```
 C:\voice-alarm-app\android-app> npx @react-native-community/cli init VoiceAlarmApp
 ```
-
+Compiling android code. I'm not sure whether this is needed.
+```
+cd android
+./gradlew clean
+```
+```
+npx react-native run-android
+```
 
 # Getting Started
 

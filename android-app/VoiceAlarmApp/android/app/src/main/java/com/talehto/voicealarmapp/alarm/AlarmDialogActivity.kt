@@ -9,6 +9,7 @@ import android.content.IntentFilter
 import android.os.Build
 import android.os.Bundle
 import androidx.core.content.ContextCompat
+import com.talehto.voicealarmapp.service.TTSService
 
 class AlarmDialogActivity : Activity() {
     private val alarmFinishedReceiver: BroadcastReceiver = object : BroadcastReceiver() {
@@ -41,7 +42,7 @@ class AlarmDialogActivity : Activity() {
         ContextCompat.registerReceiver(
             this,
             alarmFinishedReceiver, 
-            IntentFilter("com.ttsalarmapp.ACTION_ALARM_FINISHED"), 
+            IntentFilter("com.talehto.voicealarmapp.ACTION_ALARM_FINISHED"), 
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
     }

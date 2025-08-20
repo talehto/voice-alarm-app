@@ -1,4 +1,4 @@
-package package com.talehto.voicealarmapp.service
+package com.talehto.voicealarmapp.service
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -17,6 +17,8 @@ import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+
+import com.talehto.voicealarmapp.R
 
 class TTSService : Service() {
     private var tts: TextToSpeech? = null
@@ -39,7 +41,7 @@ class TTSService : Service() {
         ContextCompat.registerReceiver(
             this,
             stopReceiver, 
-            IntentFilter("com.ttsalarmapp.STOP_TTS_SERVICE"), 
+            IntentFilter("com.talehto.voicealarmapp.STOP_TTS_SERVICE"), 
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
         if (Build.VERSION.SDK_INT >= 26) {
@@ -49,7 +51,7 @@ class TTSService : Service() {
             manager.createNotificationChannel(channel)
 
             // 🔹 Intent for stop a tts service.
-            val stopIntent = Intent("com.ttsalarmapp.STOP_TTS_SERVICE")
+            val stopIntent = Intent("com.talehto.voicealarmapp.STOP_TTS_SERVICE")
             val stopPendingIntent: PendingIntent = PendingIntent.getBroadcast(
                     this,
                     0,
@@ -92,7 +94,7 @@ class TTSService : Service() {
                             tts?.speak(alarmMessage, TextToSpeech.QUEUE_FLUSH, null, "ALARM_UTTERANCE")
                         } else {
                             // Closing a "stop speech" dialog.
-                            val doneIntent = Intent("com.ttsalarmapp.ACTION_ALARM_FINISHED")
+                            val doneIntent = Intent("com.talehto.voicealarmapp.ACTION_ALARM_FINISHED")
                             doneIntent.setPackage(packageName) // Explicitly target this app
                             sendBroadcast(doneIntent)
                             stopSelf()

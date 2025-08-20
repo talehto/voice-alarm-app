@@ -2,24 +2,36 @@
 package com.talehto.voicealarmapp.db
 
 import androidx.room.*
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface AlarmDao {
+
+    // --- INSERT ---
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insert(alarm: AlarmEntity): Long
+    suspend fun insertAlarm(alarm: AlarmEntity): Long
 
+    // --- UPDATE ---
     @Update
-    suspend fun update(alarm: AlarmEntity)
+    suspend fun updateAlarm(alarm: AlarmEntity): Int
 
+    // --- DELETE SINGLE ---
     @Delete
-    suspend fun delete(alarm: AlarmEntity)
+    suspend fun deleteAlarm(alarm: AlarmEntity): Int
 
-    @Query("SELECT * FROM alarms WHERE isEnabled = 1 ORDER BY time ASC")
-    suspend fun getAllEnabledAlarms(): List<AlarmEntity>
+    // --- DELETE ALL ---
+    @Query("DELETE FROM alarms")
+    suspend fun clearAll(): Int
 
-    @Query("SELECT * FROM alarms WHERE id = :id LIMIT 1")
+    // --- GET BY ID ---
+    @Query("SELECT * FROM alarms WHERE id = :id")
     suspend fun getAlarmById(id: Int): AlarmEntity?
 
-    @Query("DELETE FROM alarms")
-    suspend fun clearAll()
+    // --- GET ALL ENABLED (Flow for observation) ---
+    @Query("SELECT * FROM alarms WHERE enabled = 1 ORDER BY timeMillis ASC")
+    fun getAllEnabledAlarms(): Flow<List<AlarmEntity>>
+
+    // --- GET ALL (Flow for observation) ---
+    @Query("SELECT * FROM alarms ORDER BY timeMillis ASC")
+    fun getAllAlarms(): Flow<List<AlarmEntity>>
 }
