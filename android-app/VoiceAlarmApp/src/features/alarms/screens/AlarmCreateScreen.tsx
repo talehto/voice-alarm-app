@@ -44,6 +44,7 @@ export default function AlarmCreateScreen({ navigation, route }: Props) {
       name: "AlarmList",
       params: { newAlarm, editMode, _ts: Date.now() }, // _ts forces param change each time
       merge: true, // avoid pushing a new list instance
+      pop: true,   // use existing AlarmListScreen component, do not create a new one. 
     } as any);
   };
 
