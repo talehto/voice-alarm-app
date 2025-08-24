@@ -5,16 +5,28 @@ buildscript {
         compileSdkVersion = 36
         targetSdkVersion = 36
         ndkVersion = "27.1.12297006"
-        kotlinVersion = "1.9.22"
+        kotlinVersion = "2.2.10"
+        agpVersion = "8.10.0"
     }
     repositories {
         google()
         mavenCentral()
     }
     dependencies {
-        classpath("com.android.tools.build:gradle:8.1.4")
+        classpath("com.android.tools.build:gradle:$agpVersion")
         classpath("com.facebook.react:react-native-gradle-plugin")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion")
+    }
+
+    subprojects {
+        configurations.all {
+            resolutionStrategy.eachDependency { details ->
+                if (details.requested.group == "org.jetbrains.kotlin") {
+                    details.useVersion "$kotlinVersion"
+                    details.because "Align Kotlin components to avoid D8 metadata rewrite issues"
+                }
+            }
+        }
     }
 }
 

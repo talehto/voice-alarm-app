@@ -8,7 +8,8 @@ C:\voice-alarm-app\android-app> npx @react-native-community/cli init VoiceAlarmA
 Compiling android code. I'm not sure whether this is needed.
 ```
 cd android
-./gradlew clean
+./gradle.bat clean
+./gradle.bat build
 ```
 ```
 npx react-native run-android
