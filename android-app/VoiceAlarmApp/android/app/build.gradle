@@ -1,20 +1,7 @@
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "org.jetbrains.kotlin.kapt"
-//apply plugin: "kotlin.kapt"
 apply plugin: "com.facebook.react"
-
-    // Configure kapt
-    /*kapt {
-        correctErrorTypes = true
-        useBuildCache = true
-        arguments {
-            arg("room.schemaLocation", "$projectDir/schemas")
-            arg("room.incremental", "true")
-            arg("room.expandProjection", "true")
-            arg("room.generateKotlin", "true")
-        }
-    }*/
 
 /**
  * This is the configuration block to customize your React Native Android app.

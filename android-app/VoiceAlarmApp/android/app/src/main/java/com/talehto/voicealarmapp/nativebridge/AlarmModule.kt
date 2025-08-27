@@ -6,14 +6,9 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Log
-//import com.facebook.react.bridge.ReactApplicationContext
-//import com.facebook.react.bridge.ReactContextBaseJavaModule
-//import com.facebook.react.bridge.ReactMethod
 import com.talehto.voicealarmapp.alarm.AlarmReceiver
 import com.facebook.react.bridge.*
 import com.facebook.react.modules.core.DeviceEventManagerModule
-//import com.facebook.react.bridge.ReactApplicationContext
-//import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.Promise
 import com.talehto.voicealarmapp.db.AppDatabase
 import com.talehto.voicealarmapp.db.AlarmEntity
@@ -115,6 +110,16 @@ class AlarmModule(private val reactContext: ReactApplicationContext) : ReactCont
                 promise.reject("ERR_DELETE", e.message, e)
             }
         }
+    }
+
+    @ReactMethod
+    fun addListener(eventName: String) {
+    // Required for RN event emitter. No-op, but must exist.
+    }
+
+    @ReactMethod
+    fun removeListeners(count: Double) {
+    // Required for RN event emitter. No-op, but must exist.
     }
 
     @ReactMethod
