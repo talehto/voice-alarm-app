@@ -4,10 +4,11 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
 import AlarmListScreen from "../features/alarms/screens/AlarmListScreen";
 import AlarmCreateScreen from "../features/alarms/screens/AlarmCreateScreen";
+import type { Alarm } from "../features/alarms/state/AlarmsContext";
 
 export type RootStackParamList = {
   AlarmList: undefined;
-  AlarmCreate: undefined;
+  AlarmCreate: { alarm?: Alarm; editMode?: boolean } | undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();

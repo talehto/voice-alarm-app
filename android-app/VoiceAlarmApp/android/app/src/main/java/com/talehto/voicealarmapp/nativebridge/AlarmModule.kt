@@ -164,43 +164,71 @@ class AlarmModule(private val reactContext: ReactApplicationContext) : ReactCont
         return arr
     }
 
-    private fun AlarmEntity.toWritableMap(): WritableMap {
-        val map = Arguments.createMap()
-        map.putInt("id", id)
-        map.putString("label", label)
-        map.putString("time", millisToIso(timeMillis))
-        map.putBoolean("enabled", enabled)
-        return map
+    private fun AlarmEntity.toWritableMap(): WritableMap = Arguments.createMap().apply {
+        putInt("id", id)
+        putString("type", type)
+        putString("title", title)
+        putString("text", text)
+        putBoolean("enabled", enabled)
+    
+        if (type == "single") {
+            val iso = singleDateTimeMillis?.let { millisToIso(it) }
+            val single = Arguments.createMap().apply { putString("dateTime", iso) }
+            putMap("single", single)
+        } else if (type == "weekly") {
+            val weekly = Arguments.createMap().apply {
+                putInt("daysMask", weeklyDaysMask ?: 0)
+                val tod = Arguments.createMap().apply {
+                    putInt("hour", weeklyHour ?: 0)
+                    putInt("minute", weeklyMinute ?: 0)
+                }
+                putMap("timeOfDay", tod)
+            }
+            putMap("weekly", weekly)
+        }
     }
 
     private fun ReadableMap.toEntity(requireId: Boolean = false): AlarmEntity {
-        val id =
-          if (hasKey("id") && !isNull("id")) getInt("id")
-          else if (requireId) throw IllegalArgumentException("Missing 'id' for update")
-          else 0 // Room autoGenerate when inserting
+        val id = if (hasKey("id") && !isNull("id")) getInt("id")
+                 else if (requireId) error("Missing id") else 0
     
-        val label =
-          if (hasKey("label") && !isNull("label")) getString("label") ?: ""
-          else ""
+        val type = getStringOrEmpty("type") // "single" | "weekly"
+        val title = getStringOrEmpty("title")
+        val text = getStringOrEmpty("text")
+        val enabled = if (hasKey("enabled") && !isNull("enabled")) getBoolean("enabled") else true
     
-        val enabled =
-          if (hasKey("enabled") && !isNull("enabled")) getBoolean("enabled")
-          else true
+        var singleMillis: Long? = null
+        var mask: Int? = null
+        var hour: Int? = null
+        var minute: Int? = null
     
-        // Expect JS to send ISO time string
-        val timeIso =
-          if (hasKey("time") && !isNull("time")) getString("time") ?: ""
-          else ""
-    
-        val timeMillis = isoToMillis(timeIso)
-    
+        if (type == "single" && hasKey("single") && !isNull("single")) {
+            val s = getMap("single")
+            val iso = s?.getString("dateTime")
+            singleMillis = iso?.let { isoToMillis(it) }
+        } else if (type == "weekly" && hasKey("weekly") && !isNull("weekly")) {
+            val w = getMap("weekly")
+            mask = w?.getInt("daysMask")
+            val tod = w?.getMap("timeOfDay")
+            hour = tod?.getInt("hour")
+            minute = tod?.getInt("minute")
+        }
+        
         return AlarmEntity(
-          id = id,
-          label = label,
-          timeMillis = timeMillis,
-          enabled = enabled
+            id = id,
+            type = type,
+            title = title,
+            text  = text,
+            enabled = enabled,
+            singleDateTimeMillis = singleMillis,
+            weeklyDaysMask = mask,
+            weeklyHour = hour,
+            weeklyMinute = minute
         )
     }
+
+    private fun ReadableMap.getStringOrEmpty(key: String): String =
+    if (hasKey(key) && !isNull(key)) getString(key) ?: "" else ""
 
     private fun isoToMillis(iso: String): Long {
         return try {
