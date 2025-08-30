@@ -41,7 +41,6 @@
         android:exported="false"
         android:showOnLockScreen="true"
         android:turnScreenOn="true"
-        android:theme="@style/Theme.AppCompat.DayNight.NoActionBar"
         android:launchMode="singleTask" />
     </application>
 </manifest>

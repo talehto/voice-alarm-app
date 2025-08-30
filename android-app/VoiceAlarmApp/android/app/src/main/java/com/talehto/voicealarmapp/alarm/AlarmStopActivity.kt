@@ -31,8 +31,11 @@ class AlarmStopActivity : Activity() {
     }
 
     setContentView(R.layout.activity_alarm_stop)
-    findViewById<TextView>(R.id.alarmTitle).text = intent.getStringExtra(EXTRA_TITLE) ?: "Alarm"
-    findViewById<TextView>(R.id.alarmText).text  = intent.getStringExtra(EXTRA_TEXT) ?: "Alarm is ringing"
+
+    findViewById<TextView>(R.id.alarmTitle).text =
+      intent.getStringExtra(EXTRA_TITLE) ?: "Alarm"
+    findViewById<TextView>(R.id.alarmText).text  =
+      intent.getStringExtra(EXTRA_TEXT) ?: "Alarm is ringing"
 
     findViewById<Button>(R.id.stopButton).setOnClickListener {
       if (finished) return@setOnClickListener
@@ -41,17 +44,16 @@ class AlarmStopActivity : Activity() {
       finish()
     }
 
-    // Keep visible for full 5s unless user stops sooner
+    // Keep UI up for 5s unless user presses Stop
     handler.postDelayed({
       if (!finished) { finished = true; finish() }
-    }, 5_000)
+    }, 15_000)
   }
 
   override fun onDestroy() {
     handler.removeCallbacksAndMessages(null)
     super.onDestroy()
   }
-
   companion object {
     const val EXTRA_TITLE = "title"
     const val EXTRA_TEXT  = "text"

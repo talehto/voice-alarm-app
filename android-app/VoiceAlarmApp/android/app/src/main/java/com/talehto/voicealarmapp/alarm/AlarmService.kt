@@ -14,6 +14,7 @@ import com.talehto.voicealarmapp.db.AlarmEntity
 import kotlinx.coroutines.*
 import android.speech.tts.TextToSpeech
 import java.util.*
+import android.app.ActivityManager
 
 class AlarmService : Service(), TextToSpeech.OnInitListener {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -29,7 +30,6 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
     wakeLock?.acquire(10 * 60 * 1000L)
         createChannel()
         tts = TextToSpeech(this, this)
-        tts?.setLanguage(Locale("fi"))
     }
 
     override fun onDestroy() {
@@ -62,8 +62,9 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
         // Start foreground immediately
         startForeground(NOTIF_ID, buildNotification(alarm))
 
-        maybeStartStopUiIfForeground(alarm)
-        //launchStopActivity(alarm)
+        if (isAppInForeground() || isScreenOn()) {
+            launchStopActivity(alarm)
+        }
 
         // Speak 5 times
         speakFiveTimes(alarm)
@@ -75,25 +76,19 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
 
         stopSelf()
     }
-
-    private fun maybeStartStopUiIfForeground(alarm: AlarmEntity) {
-        if (isAppInForeground()) {
-            val full = Intent(this, AlarmStopActivity::class.java).apply {
-                putExtra(AlarmStopActivity.EXTRA_TITLE, alarm.title.ifBlank { "Alarm" })
-                putExtra(AlarmStopActivity.EXTRA_TEXT,  alarm.text.ifBlank { "Alarm is ringing" })
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            }
-            startActivity(full) // Allowed when app is foreground
-        }
-    }
     
     private fun isAppInForeground(): Boolean {
         val am = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        val my = packageName
         val procs = am.runningAppProcesses ?: return false
-        val myPkg = packageName
-        return procs.any { it.importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND && it.processName == myPkg }
+        return procs.any { it.processName == my && it.importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND }
     }
     
+    private fun isScreenOn(): Boolean {
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        @Suppress("DEPRECATION")
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT_WATCH) pm.isInteractive else pm.isScreenOn
+    }
 
     private fun launchStopActivity(alarm: AlarmEntity) {
         val full = Intent(this, AlarmStopActivity::class.java).apply {
@@ -102,14 +97,14 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
           addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
         startActivity(full)
-      }
+    }
 
-      private fun buildNotification(alarm: AlarmEntity): Notification {
+    private fun buildNotification(alarm: AlarmEntity): Notification {
         val stopIntent = Intent(this, AlarmService::class.java).apply { action = ACTION_STOP }
         val stopPending = PendingIntent.getService(
             this, 0, stopIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-    
+
         val full = Intent(this, AlarmStopActivity::class.java).apply {
             putExtra(AlarmStopActivity.EXTRA_TITLE, alarm.title.ifBlank { "Alarm" })
             putExtra(AlarmStopActivity.EXTRA_TEXT,  alarm.text.ifBlank { "Alarm is ringing" })
@@ -118,7 +113,7 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
         val fullPending = PendingIntent.getActivity(
             this, 1, full, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-    
+
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher) // correct R import
             .setContentTitle(alarm.title.ifBlank { "Alarm" })
@@ -130,7 +125,7 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
             .setContentIntent(fullPending)
             .setFullScreenIntent(fullPending, true) // << key for background launch
             .addAction(NotificationCompat.Action(0, "Stop", stopPending))
-    
+
         if (Build.VERSION.SDK_INT >= 31) {
             builder.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE)
         }
@@ -167,7 +162,14 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                 .build()
         )
-        tts?.language = Locale.getDefault()
+        //tts?.language = Locale.getDefault()
+        val result = tts?.setLanguage(Locale("fi", "FI"))
+
+        if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+            android.util.Log.w("AlarmService", "Finnish language not supported on this device")
+        } else {
+            android.util.Log.d("AlarmService", "Finnish language set")
+        }
     }
 
     private fun createChannel() {
