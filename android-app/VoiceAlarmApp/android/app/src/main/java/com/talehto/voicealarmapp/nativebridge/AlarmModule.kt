@@ -7,6 +7,7 @@ import android.content.Intent
 import android.os.Build
 import android.util.Log
 import com.talehto.voicealarmapp.alarm.AlarmReceiver
+import com.talehto.voicealarmapp.alarm.AlarmScheduler
 import com.facebook.react.bridge.*
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import com.facebook.react.bridge.Promise
@@ -71,6 +72,7 @@ class AlarmModule(private val reactContext: ReactApplicationContext) : ReactCont
             try {
                 val entity = map.toEntity()
                 val rowId = dao.insert(entity)
+                AlarmScheduler.schedule(reactApplicationContext, entity.copy(id = rowId.toInt()))
                 // If your DAO uses autoGenerate PK, you may want to fetch back to get the actual id.
                 // For simplicity we return rowId as Int (often equals PK for single-table, but not guaranteed).
                 promise.resolve(rowId.toInt())
@@ -90,6 +92,7 @@ class AlarmModule(private val reactContext: ReactApplicationContext) : ReactCont
             try {
                 val entity = map.toEntity(requireId = true)
                 dao.update(entity)
+                if (entity.enabled) AlarmScheduler.schedule(reactApplicationContext, entity)else AlarmScheduler.cancel(reactApplicationContext, entity.id)
                 promise.resolve(null)
             } catch (e: Exception) {
                 promise.reject("ERR_UPDATE", e.message, e)
@@ -105,6 +108,7 @@ class AlarmModule(private val reactContext: ReactApplicationContext) : ReactCont
         scope.launch {
             try {
                 dao.deleteById(id)
+                AlarmScheduler.cancel(reactApplicationContext, id)
                 promise.resolve(null)
             } catch (e: Exception) {
                 promise.reject("ERR_DELETE", e.message, e)
@@ -122,28 +126,28 @@ class AlarmModule(private val reactContext: ReactApplicationContext) : ReactCont
     // Required for RN event emitter. No-op, but must exist.
     }
 
-    @ReactMethod
-    fun setAlarm(timestamp: Double, message: String?) {
-        val context: Context = getReactApplicationContext()
-        val alarmManager: AlarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        val intent = Intent(context, AlarmReceiver::class.java)
-        intent.putExtra("alarm_message", message)
-        val requestCode = System.currentTimeMillis().toInt()
-        val pendingIntent: PendingIntent = PendingIntent.getBroadcast(
-                context,
-                requestCode,
-                intent,
-                PendingIntent.FLAG_IMMUTABLE
-        )
-        val triggerTime = timestamp.toLong()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
-            Log.d(TAG, "Alarm set with setExactAndAllowWhileIdle for: $triggerTime")
-        } else {
-            alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
-            Log.d(TAG, "Alarm set with setExact for: $triggerTime")
-        }
-    }
+    //@ReactMethod
+    //fun setAlarm(timestamp: Double, message: String?) {
+    //    val context: Context = getReactApplicationContext()
+    //    val alarmManager: AlarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+    //    val intent = Intent(context, AlarmReceiver::class.java)
+    //    intent.putExtra("alarm_message", message)
+    //    val requestCode = System.currentTimeMillis().toInt()
+    //    val pendingIntent: PendingIntent = PendingIntent.getBroadcast(
+    //            context,
+    //            requestCode,
+    //            intent,
+    //            PendingIntent.FLAG_IMMUTABLE
+    //    )
+    //    val triggerTime = timestamp.toLong()
+    //    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+    //        alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
+    //        Log.d(TAG, "Alarm set with setExactAndAllowWhileIdle for: $triggerTime")
+    //    } else {
+    //        alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
+    //        Log.d(TAG, "Alarm set with setExact for: $triggerTime")
+    //    }
+    //}
 
     // ---------- Helpers: send event to JS ----------
     private fun sendEvent(name: String, params: WritableArray) {
@@ -213,7 +217,7 @@ class AlarmModule(private val reactContext: ReactApplicationContext) : ReactCont
             hour = tod?.getInt("hour")
             minute = tod?.getInt("minute")
         }
-        
+
         return AlarmEntity(
             id = id,
             type = type,

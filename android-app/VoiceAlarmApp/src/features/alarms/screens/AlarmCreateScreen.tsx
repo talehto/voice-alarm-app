@@ -5,6 +5,7 @@ import DateTimePicker from "@react-native-community/datetimepicker";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../../../navigation/AppNavigator";
 import { useAlarms, Alarm, AlarmType } from "../state/AlarmsContext";
+import { ensureNotificationsPermission } from "../../../utils/permissions";
 
 // helpers for weekday bitmask (0=Sun..6=Sat)
 const dayLabels = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
@@ -61,6 +62,7 @@ export default function AlarmCreateScreen({ navigation, route }: Props) {
 
   const handleSave = async () => {
     if (!title.trim()) { alert("Please enter a title"); return; }
+    
     if (type === "single") {
       const payload = {
         type: "single" as const,
@@ -69,6 +71,14 @@ export default function AlarmCreateScreen({ navigation, route }: Props) {
         enabled: true,
         single: { dateTime: singleDate.toISOString() },
       };
+
+      const granted = await ensureNotificationsPermission();
+      if (!granted) {
+        alert("Notifications are required to alert you when the alarm rings. You can enable them in Settings.");
+        // You can choose to abort save here, or proceed but warn that alarm may be silent.
+         return;
+      }
+
       if (editMode && editingAlarm) {
         await update({ ...editingAlarm, ...payload });
       } else {
