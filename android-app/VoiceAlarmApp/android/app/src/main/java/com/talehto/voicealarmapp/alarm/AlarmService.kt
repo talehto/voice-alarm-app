@@ -104,7 +104,7 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
         val stopPending = PendingIntent.getService(
             this, 0, stopIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-
+    
         val full = Intent(this, AlarmStopActivity::class.java).apply {
             putExtra(AlarmStopActivity.EXTRA_TITLE, alarm.title.ifBlank { "Alarm" })
             putExtra(AlarmStopActivity.EXTRA_TEXT,  alarm.text.ifBlank { "Alarm is ringing" })
@@ -113,25 +113,28 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
         val fullPending = PendingIntent.getActivity(
             this, 1, full, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-
+    
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher) // correct R import
+            .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(alarm.title.ifBlank { "Alarm" })
             .setContentText(alarm.text.ifBlank { "Alarm is ringing" })
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setOnlyAlertOnce(true)
-            .setOngoing(true) // stays in shade while speaking
+            .setOngoing(true)
+            //.setSilent(true)              // 🔇 mute builder on pre-O too
+            .setDefaults(0)               // no default sound/vibrate/light
+            //.setVibrate(null)             // just in case
             .setContentIntent(fullPending)
-            .setFullScreenIntent(fullPending, true) // << key for background launch
+            .setFullScreenIntent(fullPending, true)
             .addAction(NotificationCompat.Action(0, "Stop", stopPending))
-
+    
         if (Build.VERSION.SDK_INT >= 31) {
             builder.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE)
         }
         return builder.build()
     }
-        
+            
     private suspend fun speakFiveTimes(alarm: AlarmEntity) = withContext(Dispatchers.Main) {
         // Wait for TTS init if needed
         var tries = 0
@@ -143,7 +146,7 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
         repeat(5) {
             say(txt)
             // naive wait: in real apps, hook onUtteranceProgressListener; here, wait ~3s
-            delay(3000)
+            delay(6000)
         }
     }
 
@@ -176,9 +179,14 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val mgr = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             val ch = NotificationChannel(
-                CHANNEL_ID, "Alarms", NotificationManager.IMPORTANCE_HIGH
+                CHANNEL_ID,
+                "Alarms (Silent)",
+                NotificationManager.IMPORTANCE_HIGH // heads-up visuals, no sound if muted
             ).apply {
-                description = "Alarm notifications"
+                description = "Shows alarm UI without playing a notification sound"
+                setSound(null, null)            // 🔇 no sound
+                enableVibration(false)          // 🔇 no vibration
+                vibrationPattern = null
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
             mgr.createNotificationChannel(ch)
@@ -188,7 +196,7 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
     companion object {
         const val ACTION_START = "com.talehto.voicealarmapp.alarm.ACTION_START"
         const val ACTION_STOP = "com.talehto.voicealarmapp.alarm.ACTION_STOP"
-        const val CHANNEL_ID = "alarms_channel"
+        const val CHANNEL_ID = "alarms_silent"
         const val NOTIF_ID = 4041
     }
 }
