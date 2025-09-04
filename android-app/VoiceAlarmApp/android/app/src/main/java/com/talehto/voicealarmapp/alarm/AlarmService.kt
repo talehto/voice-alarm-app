@@ -13,6 +13,7 @@ import com.talehto.voicealarmapp.db.AppDatabase
 import com.talehto.voicealarmapp.db.AlarmEntity
 import kotlinx.coroutines.*
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import java.util.*
 import android.app.ActivityManager
 
@@ -22,6 +23,9 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
     private var currentAlarm: AlarmEntity? = null
     private var initialized = false
     private var wakeLock: PowerManager.WakeLock? = null
+    
+    // Utterance tracking
+    private val utteranceCompletions = mutableMapOf<String, CompletableDeferred<Unit>>()
 
     override fun onCreate() {
         super.onCreate()
@@ -37,6 +41,9 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
         tts?.stop()
         tts?.shutdown()
         wakeLock?.release()
+        // Clean up any pending utterance completions
+        utteranceCompletions.values.forEach { it.cancel() }
+        utteranceCompletions.clear()
         super.onDestroy()
     }
 
@@ -144,17 +151,31 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
         }
         val txt = alarm.text.ifBlank { alarm.title.ifBlank { "Alarm" } }
         repeat(5) {
-            say(txt)
-            // naive wait: in real apps, hook onUtteranceProgressListener; here, wait ~3s
-            delay(6000)
+            val utteranceId = say(txt)
+            // Wait for actual utterance completion using onUtteranceProgressListener
+            try {
+                utteranceCompletions[utteranceId]?.await()
+                // Clean up the completed utterance
+                utteranceCompletions.remove(utteranceId)
+            } catch (e: Exception) {
+                android.util.Log.e("AlarmService", "Error waiting for utterance completion: ${e.message}")
+                // Clean up the failed utterance
+                utteranceCompletions.remove(utteranceId)
+            }
         }
     }
 
-    private fun say(text: String) {
+    private fun say(text: String): String {
+        val utteranceId = UUID.randomUUID().toString()
+        val deferred = CompletableDeferred<Unit>()
+        utteranceCompletions[utteranceId] = deferred
+        
         val params = Bundle().apply {
-            putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, UUID.randomUUID().toString())
+            putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId)
         }
-        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, params.getString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID))
+        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
+        
+        return utteranceId
     }
 
     override fun onInit(status: Int) {
@@ -173,6 +194,27 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
         } else {
             android.util.Log.d("AlarmService", "Finnish language set")
         }
+        
+        // Set up utterance progress listener
+        tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+            override fun onStart(utteranceId: String?) {
+                android.util.Log.d("AlarmService", "TTS started: $utteranceId")
+            }
+            
+            override fun onDone(utteranceId: String?) {
+                android.util.Log.d("AlarmService", "TTS completed: $utteranceId")
+                utteranceId?.let { id ->
+                    utteranceCompletions[id]?.complete(Unit)
+                }
+            }
+            
+            override fun onError(utteranceId: String?) {
+                android.util.Log.e("AlarmService", "TTS error: $utteranceId")
+                utteranceId?.let { id ->
+                    utteranceCompletions[id]?.completeExceptionally(Exception("TTS error"))
+                }
+            }
+        })
     }
 
     private fun createChannel() {
