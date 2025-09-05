@@ -23,9 +23,12 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
     private var currentAlarm: AlarmEntity? = null
     private var initialized = false
     private var wakeLock: PowerManager.WakeLock? = null
-    
+
     // Utterance tracking
     private val utteranceCompletions = mutableMapOf<String, CompletableDeferred<Unit>>()
+
+    private val audioManager by lazy { getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager }
+    private var focusRequest: android.media.AudioFocusRequest? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -37,6 +40,16 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
     }
 
     override fun onDestroy() {
+
+        try {
+            if (Build.VERSION.SDK_INT >= 26) {
+                focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+            } else {
+                @Suppress("DEPRECATION")
+                audioManager.abandonAudioFocus(null)
+            }
+        } catch (_: Exception) {}
+
         scope.cancel()
         tts?.stop()
         tts?.shutdown()
@@ -149,6 +162,28 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
             delay(100)
             tries++
         }
+
+        // Acquire transient focus
+        if (Build.VERSION.SDK_INT >= 26) {
+            val req = android.media.AudioFocusRequest.Builder(android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ALARM)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build()
+                ).build()
+            if (audioManager.requestAudioFocus(req) == android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+                focusRequest = req
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.requestAudioFocus(
+                null,
+                android.media.AudioManager.STREAM_MUSIC,
+                android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
+            )
+        }
+
         val txt = alarm.text.ifBlank { alarm.title.ifBlank { "Alarm" } }
         repeat(5) {
             val utteranceId = say(txt)
