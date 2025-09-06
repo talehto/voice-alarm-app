@@ -164,6 +164,8 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
         }
 
         // Acquire transient focus
+        //NOTE: App works without this optimization.
+        //TODO: Find out whether this is needed.
         if (Build.VERSION.SDK_INT >= 26) {
             val req = android.media.AudioFocusRequest.Builder(android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
                 .setAudioAttributes(
