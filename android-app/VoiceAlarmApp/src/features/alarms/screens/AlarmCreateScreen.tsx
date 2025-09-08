@@ -2,12 +2,18 @@
 import React, { useMemo, useState } from "react";
 import { View, Text, TextInput, Button, StyleSheet, Platform, TouchableOpacity } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
+import { Picker } from "@react-native-picker/picker";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../../../navigation/AppNavigator";
 import { useAlarms, Alarm, AlarmType } from "../state/AlarmsContext";
-import { ensureNotificationsPermission } from "../../../utils/permissions";
 
-// helpers for weekday bitmask (0=Sun..6=Sat)
+// ===== Language config (easily extend here) =====
+type TtsLang = "fi-FI" | "en-US"; // extend as needed
+const SUPPORTED_LANGUAGES: Array<{ code: TtsLang | string; label: string }> = [
+  { code: "fi-FI", label: "Suomi (fi-FI)" },
+  { code: "en-US", label: "English (en-US)" },
+];
+
 const dayLabels = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 const toggleBit = (mask: number, bit: number) => (mask ^ (1 << bit));
 const hasBit = (mask: number, bit: number) => ((mask >> bit) & 1) === 1;
@@ -19,17 +25,15 @@ export default function AlarmCreateScreen({ navigation, route }: Props) {
   const editingAlarm = route.params?.alarm as Alarm | undefined;
   const editMode = route.params?.editMode ?? false;
 
-  // language selection
-  const [ttsLang, setTtsLang] = useState<TtsLang>(
-    (editingAlarm?.ttsLang as TtsLang) ?? "fi-FI"        // default Finnish
-  );
-
   // type selection
   const [type, setType] = useState<AlarmType>(editingAlarm?.type ?? "single");
 
   // common fields
   const [title, setTitle] = useState(editingAlarm?.title ?? "");
   const [text, setText]   = useState(editingAlarm?.text ?? "");
+
+  // NEW: language dropdown (default Finnish)
+  const [ttsLang, setTtsLang] = useState<string>(editingAlarm?.["ttsLang"] ?? "fi-FI");
 
   // single
   const initialSingleDate = useMemo(() => {
@@ -67,28 +71,28 @@ export default function AlarmCreateScreen({ navigation, route }: Props) {
 
   const handleSave = async () => {
     if (!title.trim()) { alert("Please enter a title"); return; }
-    
+
+    // ensure notifications (Android 13+) – optional if you already call elsewhere
+    // const ok = await ensureNotificationsPermission();
+
     if (type === "single") {
+      let dt = singleDate;
+      const now = new Date();
+      if (dt.getTime() <= now.getTime() + 2000) {
+        dt = new Date(dt.getTime() + 24 * 60 * 60 * 1000); // push to tomorrow
+      }
       const payload = {
         type: "single" as const,
         title,
         text,
         enabled: true,
-        ttsLang,
-        single: { dateTime: singleDate.toISOString() },
+        ttsLang: ttsLang as TtsLang,
+        single: { dateTime: dt.toISOString() },
       };
-
-      const granted = await ensureNotificationsPermission();
-      if (!granted) {
-        alert("Notifications are required to alert you when the alarm rings. You can enable them in Settings.");
-        // You can choose to abort save here, or proceed but warn that alarm may be silent.
-         return;
-      }
-
       if (editMode && editingAlarm) {
         await update({ ...editingAlarm, ...payload });
       } else {
-        await add(payload);
+        await add(payload as any);
       }
     } else {
       if (daysMask === 0) { alert("Select at least one weekday"); return; }
@@ -97,13 +101,13 @@ export default function AlarmCreateScreen({ navigation, route }: Props) {
         title,
         text,
         enabled: true,
-        ttsLang,
+        ttsLang: ttsLang as TtsLang,
         weekly: { daysMask, timeOfDay: { hour: weeklyHour, minute: weeklyMinute } },
       };
       if (editMode && editingAlarm) {
         await update({ ...editingAlarm, ...payload });
       } else {
-        await add(payload);
+        await add(payload as any);
       }
     }
     navigation.goBack();
@@ -133,10 +137,18 @@ export default function AlarmCreateScreen({ navigation, route }: Props) {
         multiline
       />
 
+      {/* Language dropdown */}
       <Text style={styles.label}>Speech language</Text>
-      <View style={styles.segment}>
-        <SegmentButton label="Suomi"  active={ttsLang === "fi-FI"} onPress={() => setTtsLang("fi-FI")} />
-        <SegmentButton label="English" active={ttsLang === "en-US"} onPress={() => setTtsLang("en-US")} />
+      <View style={styles.pickerWrapper}>
+        <Picker
+          selectedValue={ttsLang}
+          onValueChange={(val) => setTtsLang(val)}
+          dropdownIconColor="#333"
+        >
+          {SUPPORTED_LANGUAGES.map((lang) => (
+            <Picker.Item key={lang.code} label={lang.label} value={lang.code} />
+          ))}
+        </Picker>
       </View>
 
       {type === "single" ? (
@@ -223,4 +235,5 @@ const styles = StyleSheet.create({
   dayChipOn: { backgroundColor: "#2157f2", borderColor: "#2157f2" },
   dayText: { fontWeight: "600" },
   dayTextOn: { color: "#fff" },
+  pickerWrapper: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, overflow: "hidden" },
 });

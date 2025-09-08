@@ -229,14 +229,6 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                 .build()
         )
-        //tts?.language = Locale.getDefault()
-        //val result = tts?.setLanguage(Locale("fi", "FI"))
-
-        // if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-        //     android.util.Log.w("AlarmService", "Finnish language not supported on this device")
-        // } else {
-        //     android.util.Log.d("AlarmService", "Finnish language set")
-        // }
         
         // Set up utterance progress listener
         tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
