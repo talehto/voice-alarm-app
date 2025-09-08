@@ -52,7 +52,7 @@ export default function AlarmListScreen({ navigation }: Props) {
             <View style={styles.row}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.title}>{item.title}</Text>
-                <Text style={styles.subtitle}>{subtitle}</Text>
+                <Text style={styles.subtitle}>{subtitle}{item.ttsLang === "fi-FI" ? " Suomi" : " English"}</Text>
                 {item.text ? <Text style={styles.textPreview} numberOfLines={1}>{item.text}</Text> : null}
               </View>
               <View style={styles.actions}>

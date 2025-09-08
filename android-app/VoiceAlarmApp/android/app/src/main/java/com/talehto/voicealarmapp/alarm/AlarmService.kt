@@ -163,6 +163,12 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
             tries++
         }
 
+        val ok = setLanguageFor(alarm.ttsLang)
+        if (!ok) {
+            android.util.Log.w("AlarmService", "Selected TTS language not available: ${alarm.ttsLang}. Falling back to Finnish.")
+            setLanguageFor("fi-FI")
+        }
+
         // Acquire transient focus
         //NOTE: App works without this optimization.
         //TODO: Find out whether this is needed.
@@ -224,13 +230,13 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
                 .build()
         )
         //tts?.language = Locale.getDefault()
-        val result = tts?.setLanguage(Locale("fi", "FI"))
+        //val result = tts?.setLanguage(Locale("fi", "FI"))
 
-        if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-            android.util.Log.w("AlarmService", "Finnish language not supported on this device")
-        } else {
-            android.util.Log.d("AlarmService", "Finnish language set")
-        }
+        // if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+        //     android.util.Log.w("AlarmService", "Finnish language not supported on this device")
+        // } else {
+        //     android.util.Log.d("AlarmService", "Finnish language set")
+        // }
         
         // Set up utterance progress listener
         tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
@@ -270,6 +276,25 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
             }
             mgr.createNotificationChannel(ch)
         }
+    }
+
+    // AlarmService.kt – add inside class
+    private fun setLanguageFor(code: String?): Boolean {
+        val tag = (code ?: "fi-FI").ifBlank { "fi-FI" }
+        val locale = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            Locale.forLanguageTag(tag)
+        } else {
+            // Fallback parsing
+            val parts = tag.split("-")
+            when (parts.size) {
+                1 -> Locale(parts[0])
+                2 -> Locale(parts[0], parts[1])
+                else -> Locale("fi", "FI")
+            }
+        }
+        android.util.Log.d("AlarmService", "setLanguageFor: code=" + tag + ", locale=" + locale.toString())
+        val res = tts?.setLanguage(locale)
+        return res != TextToSpeech.LANG_MISSING_DATA && res != TextToSpeech.LANG_NOT_SUPPORTED
     }
 
     companion object {

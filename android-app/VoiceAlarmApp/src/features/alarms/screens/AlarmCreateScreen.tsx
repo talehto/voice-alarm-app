@@ -19,6 +19,11 @@ export default function AlarmCreateScreen({ navigation, route }: Props) {
   const editingAlarm = route.params?.alarm as Alarm | undefined;
   const editMode = route.params?.editMode ?? false;
 
+  // language selection
+  const [ttsLang, setTtsLang] = useState<TtsLang>(
+    (editingAlarm?.ttsLang as TtsLang) ?? "fi-FI"        // default Finnish
+  );
+
   // type selection
   const [type, setType] = useState<AlarmType>(editingAlarm?.type ?? "single");
 
@@ -69,6 +74,7 @@ export default function AlarmCreateScreen({ navigation, route }: Props) {
         title,
         text,
         enabled: true,
+        ttsLang,
         single: { dateTime: singleDate.toISOString() },
       };
 
@@ -91,6 +97,7 @@ export default function AlarmCreateScreen({ navigation, route }: Props) {
         title,
         text,
         enabled: true,
+        ttsLang,
         weekly: { daysMask, timeOfDay: { hour: weeklyHour, minute: weeklyMinute } },
       };
       if (editMode && editingAlarm) {
@@ -125,6 +132,12 @@ export default function AlarmCreateScreen({ navigation, route }: Props) {
         placeholder="What should be spoken?"
         multiline
       />
+
+      <Text style={styles.label}>Speech language</Text>
+      <View style={styles.segment}>
+        <SegmentButton label="Suomi"  active={ttsLang === "fi-FI"} onPress={() => setTtsLang("fi-FI")} />
+        <SegmentButton label="English" active={ttsLang === "en-US"} onPress={() => setTtsLang("en-US")} />
+      </View>
 
       {type === "single" ? (
         <>

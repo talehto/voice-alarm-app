@@ -17,6 +17,8 @@ data class AlarmEntity(
 
     val enabled: Boolean = true,
 
+    val ttsLang: String = "fi-FI",
+
     // single
     val singleDateTimeMillis: Long?,  // nullable if weekly
 

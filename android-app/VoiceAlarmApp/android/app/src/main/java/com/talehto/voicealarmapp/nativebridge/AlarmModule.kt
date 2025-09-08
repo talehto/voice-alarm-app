@@ -52,11 +52,17 @@ class AlarmModule(private val reactContext: ReactApplicationContext) : ReactCont
      */
     @ReactMethod
     fun getAll(promise: Promise) {
+        Log.d(TAG, "getAll() called")
         scope.launch {
             try {
-                val rows = dao.getAllOnce().toWritableArray()
+                Log.d(TAG, "Starting database query for all alarms")
+                val entities = dao.getAllOnce()
+                Log.d(TAG, "Retrieved ${entities.size} alarms from database")
+                val rows = entities.toWritableArray()
+                Log.d(TAG, "Converted to WritableArray, resolving promise")
                 promise.resolve(rows)
             } catch (e: Exception) {
+                Log.e(TAG, "Error in getAll(): ${e.message}", e)
                 promise.reject("ERR_GET_ALL", e.message, e)
             }
         }
@@ -126,29 +132,6 @@ class AlarmModule(private val reactContext: ReactApplicationContext) : ReactCont
     // Required for RN event emitter. No-op, but must exist.
     }
 
-    //@ReactMethod
-    //fun setAlarm(timestamp: Double, message: String?) {
-    //    val context: Context = getReactApplicationContext()
-    //    val alarmManager: AlarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-    //    val intent = Intent(context, AlarmReceiver::class.java)
-    //    intent.putExtra("alarm_message", message)
-    //    val requestCode = System.currentTimeMillis().toInt()
-    //    val pendingIntent: PendingIntent = PendingIntent.getBroadcast(
-    //            context,
-    //            requestCode,
-    //            intent,
-    //            PendingIntent.FLAG_IMMUTABLE
-    //    )
-    //    val triggerTime = timestamp.toLong()
-    //    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-    //        alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
-    //        Log.d(TAG, "Alarm set with setExactAndAllowWhileIdle for: $triggerTime")
-    //    } else {
-    //        alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
-    //        Log.d(TAG, "Alarm set with setExact for: $triggerTime")
-    //    }
-    //}
-
     // ---------- Helpers: send event to JS ----------
     private fun sendEvent(name: String, params: WritableArray) {
         try {
@@ -174,6 +157,7 @@ class AlarmModule(private val reactContext: ReactApplicationContext) : ReactCont
         putString("title", title)
         putString("text", text)
         putBoolean("enabled", enabled)
+        putString("ttsLang", ttsLang)
     
         if (type == "single") {
             val iso = singleDateTimeMillis?.let { millisToIso(it) }
@@ -205,6 +189,7 @@ class AlarmModule(private val reactContext: ReactApplicationContext) : ReactCont
         var mask: Int? = null
         var hour: Int? = null
         var minute: Int? = null
+        val ttsLang = getStringOrEmpty("ttsLang").ifBlank { "fi-FI" }
     
         if (type == "single" && hasKey("single") && !isNull("single")) {
             val s = getMap("single")
@@ -224,6 +209,7 @@ class AlarmModule(private val reactContext: ReactApplicationContext) : ReactCont
             title = title,
             text  = text,
             enabled = enabled,
+            ttsLang = ttsLang,
             singleDateTimeMillis = singleMillis,
             weeklyDaysMask = mask,
             weeklyHour = hour,

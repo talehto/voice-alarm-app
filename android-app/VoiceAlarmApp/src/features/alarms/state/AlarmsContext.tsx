@@ -5,6 +5,8 @@ import { NativeEventEmitter, NativeModules } from "react-native";
 // --- Types ---
 export type AlarmType = "single" | "weekly";
 
+export type TtsLang = "fi-FI" | "en-US";
+
 export type WeeklySpec = {
   daysMask: number;                     // bitmask Sun..Sat = bit0..bit6
   timeOfDay: { hour: number; minute: number };
@@ -20,6 +22,7 @@ export type Alarm = {
   title: string;
   text: string;
   enabled: boolean;
+  ttsLang: TtsLang;                
   weekly?: WeeklySpec;
   single?: SingleSpec;
 };
