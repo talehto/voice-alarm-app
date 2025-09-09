@@ -9,12 +9,13 @@ import com.talehto.voicealarmapp.db.AlarmEntity
 
 object AlarmScheduler {
     private const val REQ_CODE_BASE = 10000
+    private const val SAFETY_MS = 2_000L // 2s buffer
 
     fun schedule(context: Context, alarm: AlarmEntity) {
         cancel(context, alarm.id)
         if (!alarm.enabled) return
 
-        val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val now = System.currentTimeMillis()
         val triggerAt = when (alarm.type) {
             "single" -> alarm.singleDateTimeMillis ?: return
             "weekly" -> nextWeeklyTrigger(
@@ -25,6 +26,10 @@ object AlarmScheduler {
             else -> return
         }
 
+        // Hard stop: never schedule “now/past”
+        if (triggerAt <= now + SAFETY_MS) return
+
+        val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val pi = pendingIntent(context, alarm.id)
         am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi)
     }
@@ -36,16 +41,18 @@ object AlarmScheduler {
 
     /** For weekly: compute the next occurrence from now (local time). */
     private fun nextWeeklyTrigger(daysMask: Int, hour: Int, minute: Int): Long {
-        val tz = ZoneId.systemDefault()
-        var d = ZonedDateTime.now(tz).withSecond(0).withNano(0)
-        for (i in 0..7) {
-            val candidate = d.withHour(hour).withMinute(minute).plusDays(i.toLong())
-            val dowIdx = ((candidate.dayOfWeek.value) % 7) // Mon=1..Sun=7 -> 1..6,0
-            if (((daysMask shr dowIdx) and 1) == 1 && candidate.toInstant().toEpochMilli() > Instant.now().toEpochMilli()) {
-                return candidate.toInstant().toEpochMilli()
-            }
+        val tz = java.time.ZoneId.systemDefault()
+        var candidate = java.time.ZonedDateTime.now(tz)
+            .withSecond(0).withNano(0).withHour(hour).withMinute(minute)
+    
+        repeat(8) {
+            val idx = candidate.dayOfWeek.value % 7 // Mon=1..Sun=7 → 1..6,0
+            val selected = ((daysMask shr idx) and 1) == 1
+            val ms = candidate.toInstant().toEpochMilli()
+            if (selected && ms > System.currentTimeMillis() + SAFETY_MS) return ms
+            candidate = candidate.plusDays(1)
         }
-        return d.plusDays(1).toInstant().toEpochMilli()
+        return candidate.toInstant().toEpochMilli()
     }
 
     private fun pendingIntent(context: Context, alarmId: Int): PendingIntent {
