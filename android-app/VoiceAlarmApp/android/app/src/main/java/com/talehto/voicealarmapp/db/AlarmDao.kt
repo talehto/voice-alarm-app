@@ -24,4 +24,10 @@ interface AlarmDao {
 
     @Query("DELETE FROM alarms WHERE id = :id")
     suspend fun deleteById(id: Int)
+
+    @Query("SELECT * FROM alarms WHERE id = :id LIMIT 1")
+    suspend fun getById(id: Int): AlarmEntity?
+
+    @Query("UPDATE alarms SET enabled = :enabled WHERE id = :id")
+    suspend fun setEnabled(id: Int, enabled: Boolean): Int
 }

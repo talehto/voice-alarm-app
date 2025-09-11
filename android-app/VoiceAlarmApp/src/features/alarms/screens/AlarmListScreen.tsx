@@ -1,6 +1,6 @@
 // src/features/alarms/screens/AlarmListScreen.tsx
 import React from "react";
-import { View, Text, FlatList, Button, StyleSheet, TouchableOpacity, ActivityIndicator } from "react-native";
+import { View, Text, FlatList, Button, StyleSheet, TouchableOpacity, ActivityIndicator, Switch } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../../../navigation/AppNavigator";
 import { useAlarms, Alarm } from "../state/AlarmsContext";
@@ -29,7 +29,7 @@ function formatAlarmRow(a: Alarm): { subtitle: string } {
 }
 
 export default function AlarmListScreen({ navigation }: Props) {
-  const { state, remove } = useAlarms();
+  const { state, remove, setEnabled } = useAlarms();
 
   if (!state.loaded) {
     return (
@@ -52,8 +52,15 @@ export default function AlarmListScreen({ navigation }: Props) {
             <View style={styles.row}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.title}>{item.title}</Text>
-                <Text style={styles.subtitle}>{subtitle}{item.ttsLang === "fi-FI" ? " Suomi" : " English"}</Text>
+                <Text style={styles.subtitle}>{subtitle}</Text>
                 {item.text ? <Text style={styles.textPreview} numberOfLines={1}>{item.text}</Text> : null}
+                <View style={styles.inline}>
+                  <Text style={styles.enabledLabel}>{item.enabled ? "Enabled" : "Disabled"}</Text>
+                  <Switch
+                    value={item.enabled}
+                    onValueChange={(val) => setEnabled(item.id, val)}
+                  />
+                </View>
               </View>
               <View style={styles.actions}>
                 <TouchableOpacity
@@ -87,4 +94,6 @@ const styles = StyleSheet.create({
   delete: { backgroundColor: "#ef4444" },
   btnText: { color: "#fff", fontWeight: "600" },
   empty: { textAlign: "center", color: "#666" },
+  inline: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 6 },
+  enabledLabel: { fontSize: 12, color: "#666" },
 });

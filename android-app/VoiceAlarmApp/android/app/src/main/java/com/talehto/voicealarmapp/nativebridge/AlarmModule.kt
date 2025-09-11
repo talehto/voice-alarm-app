@@ -132,6 +132,45 @@ class AlarmModule(private val reactContext: ReactApplicationContext) : ReactCont
     // Required for RN event emitter. No-op, but must exist.
     }
 
+    @ReactMethod
+    fun setEnabled(id: Int, enabled: Boolean, promise: Promise) { 
+        scope.launch {
+            try {
+                val row = dao.getById(id) ?: run {
+                    promise.reject("ERR_NOT_FOUND", "Alarm $id not found"); return@launch
+                }
+
+                // Update enabled flag
+                dao.setEnabled(id, enabled)
+
+                // Fetch updated row
+                val updated = dao.getById(id) ?: row.copy(enabled = enabled)
+
+                if (enabled) {
+                    // If single alarm time is in the past, nudge to tomorrow
+                    val normalized = if (updated.type == "single" && updated.singleDateTimeMillis != null) {
+                        val now = System.currentTimeMillis()
+                        if (updated.singleDateTimeMillis <= now + 2_000L)
+                            updated.copy(singleDateTimeMillis = updated.singleDateTimeMillis + 24L * 60 * 60 * 1000)
+                        else updated
+                    } else updated
+
+                    // Re-save if we changed the time
+                    if (normalized != updated) dao.update(normalized)
+
+                    AlarmScheduler.schedule(reactApplicationContext, normalized)
+                } else {
+                    AlarmScheduler.cancel(reactApplicationContext, id)
+                }
+
+                // success
+                promise.resolve(null)
+            } catch (e: Exception) {
+                promise.reject("ERR_SET_ENABLED", e)
+            }
+        }
+    }
+
     // ---------- Helpers: send event to JS ----------
     private fun sendEvent(name: String, params: WritableArray) {
         try {

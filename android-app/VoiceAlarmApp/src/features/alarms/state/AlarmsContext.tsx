@@ -36,6 +36,7 @@ const AlarmNative = {
   add(a: Omit<Alarm, "id" | "enabled"> & { enabled?: boolean; id?: number }): Promise<number> { return mod.add(a); },
   update(a: Alarm): Promise<void> { return mod.update(a); },
   remove(id: number): Promise<void> { return mod.remove(id); },
+  setEnabled(id: number, enabled: boolean): Promise<void> { return mod.setEnabled(id, enabled); },
   emitter: new NativeEventEmitter(mod),
   EVENTS: { CHANGED: "alarmsChanged" },
 };
@@ -49,6 +50,7 @@ const Ctx = createContext<{
   add(a: Omit<Alarm, "id" | "enabled"> & { enabled?: boolean; id?: number }): Promise<number>;
   update(a: Alarm): Promise<void>;
   remove(id: number): Promise<void>;
+  setEnabled: (id: number, enabled: boolean) => Promise<void>;
 } | null>(null);
 
 function reducer(s: State, a: Action): State {
@@ -84,6 +86,7 @@ export const AlarmsProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     add:  (a: Omit<Alarm, "id" | "enabled"> & { enabled?: boolean; id?: number }) => AlarmNative.add(a),
     update: (a: Alarm) => AlarmNative.update(a),
     remove: (id: number) => AlarmNative.remove(id),
+    setEnabled: (id: number, enabled: boolean) => AlarmNative.setEnabled(id, enabled),
   }), [state]);
 
   return <Ctx.Provider value={api}>{children}</Ctx.Provider>;
