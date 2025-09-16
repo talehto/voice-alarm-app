@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "486053426259",
+    "project_id": "voicealarmapp-9f3c6",
+    "storage_bucket": "voicealarmapp-9f3c6.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:486053426259:android:8f38d2e3445d31b33a82a6",
+        "android_client_info": {
+          "package_name": "com.talehto.voicealarmapp"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "486053426259-uu094goci95di776cdfefjaq9trp3g2m.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.talehto.voicealarmapp",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
+          "client_id": "486053426259-21u5b0e2ioshlji0k7pa17sd7r8j08jr.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCi-F2pW8KK6Zjv91a035X_6JB6TTWhr9c"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "486053426259-21u5b0e2ioshlji0k7pa17sd7r8j08jr.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
