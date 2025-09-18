@@ -1,4 +1,5 @@
 // src/navigation/AppNavigator.tsx (sketch)
+import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuth } from '../features/auth/AuthContext';
@@ -8,38 +9,29 @@ import AlarmListScreen from '../features/alarms/screens/AlarmListScreen';
 import AlarmCreateScreen from '../features/alarms/screens/AlarmCreateScreen';
 import { Button } from "react-native";
 
-const Stack = createNativeStackNavigator();
+export type RootStackParamList = {
+  AlarmList: undefined;
+  AlarmCreate: undefined;
+};
+
+const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function AppNavigator() {
 
-  // const { state, signOut } = useAuth();
-  // const { loading, user, profile } = state;
-  //if (loading) return null; // or splash
+  const { state, signOut } = useAuth();
+  const { authLoading, user, profile, profileLoaded, handleLoaded, hasHandle } = state;
 
-  const { authLoading, user, profile, profileLoaded } = useAuth().state;
-  // Show splash/blank while determining state
-  // if (authLoading || (user && profileLoading)) {
-  //   return null; // or <Splash />
-  // }
-
-  // Show nothing (or a splash) until we KNOW the profile state.
-  if (authLoading || (user && !profileLoaded)) {
+  // Wait until both profile and handle checks have loaded to avoid transient flashes
+  if (authLoading || (user && (!profileLoaded || !handleLoaded))) {
     return null; // or <Splash />
   }
   
-
-  // const needsLogin = !user;
-  // const needsHandle = !!user && (!profile || !profile.handle);
-  
-  // const needsLogin  = !user;
-  // const hasProfile  = !!profile;
-  // const needsHandle = !!user && hasProfile && !profile?.handle;
-
-  // const needsLogin  = !user;
-  // const needsHandle = !!user && !profileLoading && !profile?.handle;
-
   const needsLogin  = !user;
-  const needsHandle = !!user && profileLoaded && !profile?.handle;
+  // Prefer the authoritative reverse-index check (hasHandle). Fall back to profile?.handle if available.
+  const userHasHandle = hasHandle || !!profile?.handle;
+  const needsHandle = !!user && !userHasHandle;
+
+  // no hooks after this point before any early returns
 
   return (
     <NavigationContainer>
@@ -53,7 +45,7 @@ export default function AppNavigator() {
             <Stack.Screen
               name="AlarmList"
               component={AlarmListScreen}
-              options={{ headerRight: () => <Button title="Logout" onPress={useAuth().signOut} /> }}
+              options={{ headerRight: () => <Button title="Logout" onPress={signOut} /> }}
             />
             <Stack.Screen name="AlarmCreate" component={AlarmCreateScreen} />
           </>
@@ -61,34 +53,4 @@ export default function AppNavigator() {
       </Stack.Navigator>
     </NavigationContainer>
   );
-
-  // return (
-  //   <NavigationContainer>
-  //     <Stack.Navigator>
-  //       {needsLogin ? (
-  //         <Stack.Screen name="Login" component={LoginScreen} />
-  //       ) : needsHandle ? (
-  //         <Stack.Screen name="HandleClaim" component={HandleClaimScreen} />
-  //       ) : (
-  //         <>
-  //           <Stack.Screen
-  //             name="AlarmList"
-  //             component={AlarmListScreen}
-  //             options={{
-  //               title: "Alarms",
-  //               headerRight: () => (
-  //                 <Button title="Logout" onPress={signOut} />
-  //               ),
-  //             }}
-  //           />
-  //           <Stack.Screen
-  //             name="AlarmCreate"
-  //             component={AlarmCreateScreen}
-  //             options={{ title: "Create Alarm" }}
-  //           />
-  //         </>
-  //       )}
-  //     </Stack.Navigator>
-  //   </NavigationContainer>
-  // );
 }
