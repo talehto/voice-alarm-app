@@ -1,18 +1,43 @@
 // src/features/auth/AuthContext.tsx
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { auth, firestore, FirebaseAuthTypes } from '../../lib/firebase';
-import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { Alert } from 'react-native';
 
-type UserDoc = { handle?: string | null; displayName?: string | null; email?: string | null; };
+// RN Firebase (modular APIs)
+import { getApp } from '@react-native-firebase/app';
+import {
+  getAuth,
+  onAuthStateChanged,
+  GoogleAuthProvider,
+  signInWithCredential,
+  signOut as fbSignOut,
+  User as FirebaseUser,
+} from '@react-native-firebase/auth';
+import {
+  getFirestore,
+  doc,
+  onSnapshot,
+  serverTimestamp,
+  setDoc,
+  getDoc,
+} from '@react-native-firebase/firestore';
+
+// Google Sign-In
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
+
+type UserDoc = {
+  handle?: string | null;
+  displayName?: string | null;
+  email?: string | null;
+  createdAt?: any;
+  updatedAt?: any;
+  // add other profile fields as needed
+};
 
 type AuthState = {
-  authLoading: boolean;           // waiting for Firebase onAuthStateChanged
-  user: FirebaseAuthTypes.User | null;
+  authLoading: boolean;                 // waiting for Firebase auth
+  user: FirebaseUser | null;
   profile: UserDoc | null;
-  profileLoaded: boolean;        // waiting for /users/{uid} snapshot
-  handleLoaded: boolean;         // waiting for handles query for this uid
-  hasHandle: boolean;            // true if any handle doc exists for this uid
+  profileLoaded: boolean;               // did we receive first /users/{uid} snapshot?
 };
 
 const Ctx = createContext<{
@@ -22,84 +47,116 @@ const Ctx = createContext<{
 } | null>(null);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const app = getApp();
+  const auth = getAuth(app);
+  const db = getFirestore(app);
 
   const [state, setState] = useState<AuthState>({
     authLoading: true,
     user: null,
     profile: null,
     profileLoaded: false,
-    handleLoaded: false,
-    hasHandle: false,
   });
 
+  // Subscribe to auth -> then subscribe to user doc
   useEffect(() => {
-    const unsubAuth = auth().onAuthStateChanged((user) => {
+    const unsubAuth = onAuthStateChanged(auth, (user) => {
       if (!user) {
-        setState({ authLoading: false, user: null, profile: null, profileLoaded: false, handleLoaded: false, hasHandle: false });
+        setState({ authLoading: false, user: null, profile: null, profileLoaded: false });
         return;
       }
-      // we have a user; start listening to their profile
-      setState(s => ({ ...s, authLoading: false, user, profileLoaded: false, handleLoaded: false }));
-  
-      const unsubUser = firestore()
-        .doc(`users/${user.uid}`)
-        .onSnapshot(
-          (snap) => {
-            setState(s => ({
-              ...s,
-              profile: (snap.data() as UserDoc) ?? null,
-              profileLoaded: true,        // <-- mark loaded only after first snapshot
-            }));
-          },
-          (_err) => {
-            setState(s => ({ ...s, profile: null, profileLoaded: true }));
-          }
-        );
 
-      // Also check whether a handle exists for this uid via the reverse index in `handles`
-      const unsubHandle = firestore()
-        .collection('handles')
-        .where('uid', '==', user.uid)
-        .limit(1)
-        .onSnapshot(
-          (snap) => {
-            setState(s => ({ ...s, hasHandle: snap.size > 0, handleLoaded: true }));
-          },
-          (_err) => {
-            setState(s => ({ ...s, hasHandle: false, handleLoaded: true }));
-          }
-        );
-  
-      return () => { unsubUser(); unsubHandle(); };
+      // we have a user; reset and start listening for their profile
+      setState((s) => ({ ...s, authLoading: false, user, profileLoaded: false }));
+
+      const unsubUser = onSnapshot(
+        doc(db, `users/${user.uid}`),
+        (snap) => {
+          setState((s) => ({
+            ...s,
+            profile: (snap.data() as UserDoc) ?? null,
+            profileLoaded: true,
+          }));
+        },
+        (_err) => {
+          setState((s) => ({ ...s, profile: null, profileLoaded: true }));
+        }
+      );
+
+      return unsubUser;
     });
-  
-    return unsubAuth;
-  }, []);
 
+    return unsubAuth;
+  }, [auth, db]);
+
+  // Google sign-in -> Firebase credential (modular)
   const signInWithGoogle = async () => {
     try {
       await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
-      const { type, data } = await GoogleSignin.signIn();
-      if (type === 'success') {
-        const googleCredential = auth.GoogleAuthProvider.credential(data.idToken);
-        await auth().signInWithCredential(googleCredential);
-      } else if (type === 'cancelled') {
-        // When the user cancels the flow for any operation that requires user interaction.
-        console.log('WARNING: GoogleSignin.signIn type is cancelled');
-        return; // do nothing
+
+      // optional: clear any cached account to avoid weird states
+      //try { await GoogleSignin.signOut(); } catch {}
+
+      const { idToken } = await GoogleSignin.signIn();
+      if (!idToken) {
+        // Fallback (Android-only): try to fetch tokens after interactive sign-in
+        // NOTE: getTokens is Android-only; wrap in try/catch
+        try {
+          // @ts-ignore
+          const tokens = await GoogleSignin.getTokens();
+          if (tokens?.idToken) {
+            const cred = GoogleAuthProvider.credential(tokens.idToken);
+            return await signInWithCredential(getAuth(getApp()), cred);
+          }
+        } catch {}
+        throw new Error('No idToken from Google Sign-In');
       }
-      
+      //if (!idToken) throw new Error('No idToken from Google Sign-In');
+
+      const credential = GoogleAuthProvider.credential(idToken);
+      const cred = await signInWithCredential(auth, credential);
+
+      // Optional: ensure a minimal /users/{uid} doc exists (createdAt)
+      const u = cred.user;
+      const userRef = doc(db, `users/${u.uid}`);
+      const existing = await getDoc(userRef);
+      if (!existing.exists()) {
+        await setDoc(
+          userRef,
+          {
+            displayName: u.displayName ?? null,
+            email: u.email ?? null,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      } else {
+        // touch updatedAt
+        await setDoc(userRef, { updatedAt: serverTimestamp() }, { merge: true });
+      }
     } catch (e: any) {
       Alert.alert('Login failed', e?.message ?? String(e));
     }
   };
 
+  // Logout without route flicker: keep authLoading true until listener confirms sign-out
   const signOut = async () => {
-    setState(s => ({ ...s, authLoading: true, user: null, profile: null, profileLoaded: false, handleLoaded: false, hasHandle: false }));
-    try { await auth().signOut(); await GoogleSignin.signOut(); } catch {}
+    setState((s) => ({ ...s, authLoading: true, user: null, profile: null, profileLoaded: false }));
+    try {
+      await fbSignOut(auth);
+      await GoogleSignin.signOut();
+    } catch {
+      // ignore
+    }
+    // onAuthStateChanged(null) will finalize the state
   };
 
-  return <Ctx.Provider value={{ state, signInWithGoogle, signOut }}>{children}</Ctx.Provider>;
+  return (
+    <Ctx.Provider value={{ state, signInWithGoogle, signOut }}>
+      {children}
+    </Ctx.Provider>
+  );
 };
 
 export function useAuth() {
