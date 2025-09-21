@@ -15,6 +15,14 @@ cd android
 npx react-native run-android
 ```
 
+# Troubleshooting
+
+## "Stop alarm" dialog is not shown
+
+Notification channels are immutable. If the user (or an old build) lowered the channel or disabled “pop on screen,” the full-screen won’t appear.
+
+* Go to Settings → Apps → Your app → Notifications → your “Alarms (Silent)” channel. Ensure Importance = High and pop-ups allowed.
+
 # Getting Started
 
 > **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
