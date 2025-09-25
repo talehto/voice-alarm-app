@@ -11,6 +11,10 @@ import {
   signInWithCredential,
   signOut as fbSignOut,
   User as FirebaseUser,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  sendPasswordResetEmail,
+  updateProfile,
 } from '@react-native-firebase/auth';
 import {
   getFirestore,
@@ -20,6 +24,8 @@ import {
   setDoc,
   getDoc,
 } from '@react-native-firebase/firestore';
+
+type EmailAuthParams = { email: string; password: string; displayName?: string };
 
 // Google Sign-In
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
@@ -140,6 +146,61 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // ---- Sign up with email/password ----
+  const signUpWithEmail = async ({ email, password, displayName }: EmailAuthParams) => {
+    const e = email.trim().toLowerCase();
+    const cred = await createUserWithEmailAndPassword(auth, e, password);
+
+    // optional: set displayName on the Firebase user profile
+    if (displayName) {
+      try { await updateProfile(cred.user, { displayName }); } catch {}
+    }
+
+    // ensure a minimal user doc exists
+    const userRef = doc(db, `users/${cred.user.uid}`);
+    const exists = await getDoc(userRef);
+    if (!exists.exists()) {
+      await setDoc(userRef, {
+        displayName: displayName ?? cred.user.displayName ?? null,
+        email: e,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+    }
+  };
+
+  // ---- Sign in with email OR handle ----
+  const signInWithEmailOrHandle = async (identifier: string, password: string) => {
+    const id = identifier.trim();
+    let email = id;
+
+    // If user typed a handle (no '@'), resolve handle -> uid -> email
+    if (!id.includes('@')) {
+      const handleDoc = await getDoc(doc(db, `handles/${id.toLowerCase()}`));
+      if (!handleDoc.exists()) throw new Error('Username not found');
+      const uid = handleDoc.get('uid');
+      const userDoc = await getDoc(doc(db, `users/${uid}`));
+      email = (userDoc.data()?.email as string) ?? null;
+      if (!email) throw new Error('Account has no email linked');
+    }
+
+    await signInWithEmailAndPassword(auth, email.toLowerCase(), password);
+  };
+
+  // ---- Password reset (identifier can be email or handle) ----
+  const resetPassword = async (identifier: string) => {
+    let email = identifier.trim();
+    if (!email.includes('@')) {
+      const handleDoc = await getDoc(doc(db, `handles/${email.toLowerCase()}`));
+      if (!handleDoc.exists()) throw new Error('Username not found');
+      const uid = handleDoc.get('uid');
+      const userDoc = await getDoc(doc(db, `users/${uid}`));
+      email = (userDoc.data()?.email as string) ?? null;
+      if (!email) throw new Error('No email on file');
+    }
+    await sendPasswordResetEmail(auth, email.toLowerCase());
+  };
+
   // Logout without route flicker: keep authLoading true until listener confirms sign-out
   const signOut = async () => {
     setState((s) => ({ ...s, authLoading: true, user: null, profile: null, profileLoaded: false }));
@@ -153,7 +214,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <Ctx.Provider value={{ state, signInWithGoogle, signOut }}>
+    <Ctx.Provider value={{ state, signInWithGoogle, signOut, signUpWithEmail, signInWithEmailOrHandle, resetPassword, }}>
       {children}
     </Ctx.Provider>
   );
