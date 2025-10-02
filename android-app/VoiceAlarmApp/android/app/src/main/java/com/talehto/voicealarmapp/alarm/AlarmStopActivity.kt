@@ -9,11 +9,16 @@ import android.os.Looper
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.TextView
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
+import android.content.Context
+import androidx.core.content.ContextCompat
 import com.talehto.voicealarmapp.R
 
 class AlarmStopActivity : Activity() {
   private val handler = Handler(Looper.getMainLooper())
   private var finished = false
+  private var stopReceiver: BroadcastReceiver? = null
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
@@ -48,10 +53,23 @@ class AlarmStopActivity : Activity() {
     handler.postDelayed({
       if (!finished) { finished = true; finish() }
     }, 15_000)
+
+    // Close UI if service Stop action is pressed from notification
+    val receiver = object : BroadcastReceiver() {
+      override fun onReceive(context: Context?, intent: Intent?) {
+        if (intent?.action == AlarmService.ACTION_UI_STOP) {
+          if (!finished) { finished = true; finish() }
+        }
+      }
+    }
+    stopReceiver = receiver
+    val filter = IntentFilter(AlarmService.ACTION_UI_STOP)
+    ContextCompat.registerReceiver(this, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
   }
 
   override fun onDestroy() {
     handler.removeCallbacksAndMessages(null)
+    try { stopReceiver?.let { unregisterReceiver(it) } } catch (_: Exception) {}
     super.onDestroy()
   }
   companion object {

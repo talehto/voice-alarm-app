@@ -13,17 +13,19 @@ import com.facebook.react.modules.core.DeviceEventManagerModule
 import com.facebook.react.bridge.Promise
 import com.talehto.voicealarmapp.db.AppDatabase
 import com.talehto.voicealarmapp.db.AlarmEntity
+import com.talehto.voicealarmapp.db.AlarmDao
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.map
 import java.time.Instant
 import java.time.format.DateTimeParseException
 
-class AlarmModule(private val reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
+class AlarmModule(private val reactCtx: ReactApplicationContext) : ReactContextBaseJavaModule(reactCtx) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val db by lazy { AppDatabase.getDatabase(reactContext) }
-    private val dao by lazy { db.alarmDao() }
+    private val dao: AlarmDao by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        AppDatabase.getDatabase(reactCtx).alarmDao()
+    }
 
     override fun getName(): String = "AlarmModule"
 
@@ -33,12 +35,19 @@ class AlarmModule(private val reactContext: ReactApplicationContext) : ReactCont
     }
 
     override fun initialize() {
+        Log.d(TAG, "Start initialize")
         super.initialize()
-        // Start streaming Room changes to JS as soon as the module is ready.
-        scope.launch {
-          dao.observeAll()
-            .map { list -> list.toWritableArray() }
-            .collectLatest { arr -> sendEvent(EVENT_ALARMS_CHANGED, arr) }
+        // Optional: send initial snapshot once the module is ready.
+        scope.launch(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "Before dao.getAllOnce")
+                val rows = dao.getAllOnce()
+                Log.d(TAG, "After dao.getAllOnce. Rows: ${rows}")
+                sendEvent(EVENT_ALARMS_CHANGED, rows.toWritableArray())
+                Log.d(TAG, "After sendEvent")
+            } catch (err : Exception) {
+                Log.d(TAG, "intialize ERROR: ${err}")
+            }
         }
     }
 
@@ -46,24 +55,65 @@ class AlarmModule(private val reactContext: ReactApplicationContext) : ReactCont
         scope.cancel() // avoid leaks
     }
 
+    // ---- NEW: replace local cache for a user (first snapshot) ----
+    @ReactMethod
+    fun replaceAllForUser(uid: String, arr: ReadableArray, promise: Promise)  {
+        scope.launch {
+            try {
+                val list = (0 until arr.size()).map { idx -> arr.getMap(idx)!!.toEntityFromRemote() }
+                dao.clearForUser(uid)
+                dao.upsertAllByRemote(list)
+                // Re-schedule everything enabled using the actual local row IDs
+                list.filter { it.enabled }.forEach { e ->
+                    val localId = e.remoteId?.let { rid -> dao.findLocalIdByRemote(rid) }
+                    if (localId != null) {
+                        AlarmScheduler.schedule(reactCtx, e.copy(id = localId))
+                    }
+                }
+                emitChanged()
+                promise.resolve(null)
+            } catch (e: Exception) { promise.reject("ERR_REPLACE", e) }
+        }
+    }
+
+    // ---- NEW: incremental upsert (subsequent snapshots) ----
+    @ReactMethod
+    fun upsertFromRemote(arr: ReadableArray, promise: Promise)  {
+        scope.launch {
+            try {
+                val list = (0 until arr.size()).map { idx -> arr.getMap(idx)!!.toEntityFromRemote() }
+                dao.upsertAllByRemote(list)
+                // Update scheduling according to enabled flag
+                list.forEach { e ->
+                    val localId = e.remoteId?.let { rid -> dao.findLocalIdByRemote(rid) }
+                    if (e.enabled) {
+                        if (localId != null) AlarmScheduler.schedule(reactCtx, e.copy(id = localId))
+                    } else {
+                        // If we can resolve a local id, cancel by that id
+                        if (localId != null) AlarmScheduler.cancel(reactCtx, localId)
+                    }
+                }
+                emitChanged()
+                promise.resolve(null)
+            } catch (e: Exception) { promise.reject("ERR_UPSERT", e) }
+        }
+    }
+
     /**
      * getAll(): Promise<Alarm[]>
      * Alarm: { id: number, label: string, time: string(ISO), enabled?: boolean }
      */
     @ReactMethod
+    //fun getAll(promise: Promise) = scope.launch(Dispatchers.IO) {
     fun getAll(promise: Promise) {
-        Log.d(TAG, "getAll() called")
         scope.launch {
             try {
                 Log.d(TAG, "Starting database query for all alarms")
-                val entities = dao.getAllOnce()
-                Log.d(TAG, "Retrieved ${entities.size} alarms from database")
-                val rows = entities.toWritableArray()
-                Log.d(TAG, "Converted to WritableArray, resolving promise")
-                promise.resolve(rows)
-            } catch (e: Exception) {
-                Log.e(TAG, "Error in getAll(): ${e.message}", e)
-                promise.reject("ERR_GET_ALL", e.message, e)
+                val rows = dao.getAllOnce()
+                Log.d(TAG, "database query for all alarms executed")
+                promise.resolve(rows.toWritableArray())
+            } catch (t: Throwable) {
+                promise.reject("ERR_GET_ALL", t)
             }
         }
     }
@@ -174,11 +224,12 @@ class AlarmModule(private val reactContext: ReactApplicationContext) : ReactCont
     // ---------- Helpers: send event to JS ----------
     private fun sendEvent(name: String, params: WritableArray) {
         try {
-            reactContext
+            reactCtx
             .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
             .emit(name, params)
-        } catch (_: Exception) {
+        } catch (err : Exception) {
         // If JS isn't ready yet, ignore; the initial getAll() will populate anyway.
+        Log.d(TAG, "sendEvent ERROR: ${err}")
         }
     }
 
@@ -186,7 +237,24 @@ class AlarmModule(private val reactContext: ReactApplicationContext) : ReactCont
 
     private fun List<AlarmEntity>.toWritableArray(): WritableArray {
         val arr = Arguments.createArray()
-        forEach { arr.pushMap(it.toWritableMap()) }
+        forEach { e ->
+            val m: WritableMap = Arguments.createMap()
+            m.putInt("id", e.id)
+            if (e.remoteId != null) m.putString("remoteId", e.remoteId)
+            m.putString("ownerUid", e.ownerUid)
+            m.putString("targetUid", e.targetUid)
+            m.putString("type", e.type)
+            m.putString("title", e.title)
+            m.putString("text", e.text)
+            m.putBoolean("enabled", e.enabled)
+            m.putString("ttsLang", e.ttsLang)
+            e.singleDateTimeMillis?.let { m.putDouble("singleDateTimeMillis", it.toDouble()) }
+            e.weeklyDaysMask?.let { m.putInt("weeklyDaysMask", it) }
+            e.weeklyHour?.let { m.putInt("weeklyHour", it) }
+            e.weeklyMinute?.let { m.putInt("weeklyMinute", it) }
+            m.putDouble("updatedAtMillis", e.updatedAtMillis.toDouble())
+            arr.pushMap(m)
+        }
         return arr
     }
 
@@ -256,6 +324,41 @@ class AlarmModule(private val reactContext: ReactApplicationContext) : ReactCont
         )
     }
 
+    // Map Firestore-shaped object to AlarmEntity
+    private fun ReadableMap.toEntityFromRemote(): AlarmEntity {
+        fun optString(key: String, def: String? = null) =
+            if (hasKey(key) && !isNull(key)) getString(key) else def
+        fun optBool(key: String, def: Boolean = false) =
+            if (hasKey(key) && !isNull(key)) getBoolean(key) else def
+        fun optLong(key: String): Long? =
+            if (hasKey(key) && !isNull(key)) {
+                val t = getType(key)
+                when (t) {
+                    ReadableType.Number -> getDouble(key).toLong()
+                    else -> null
+                }
+            } else null
+        fun optInt(key: String): Int? =
+            if (hasKey(key) && !isNull(key)) getDouble(key).toInt() else null
+
+        return AlarmEntity(
+            id = 0, // will be preserved in DAO if remoteId exists
+            remoteId = optString("remoteId") ?: optString("id"),
+            ownerUid = optString("ownerUid") ?: "",
+            targetUid = optString("targetUid") ?: "",
+            type = optString("type") ?: "single",
+            title = optString("title") ?: "",
+            text = optString("text") ?: "",
+            enabled = optBool("enabled", true),
+            ttsLang = optString("ttsLang") ?: "fi-FI",
+            singleDateTimeMillis = optLong("singleDateTimeMillis"),
+            weeklyDaysMask = optInt("weeklyDaysMask"),
+            weeklyHour = optInt("weeklyHour"),
+            weeklyMinute = optInt("weeklyMinute"),
+            updatedAtMillis = optLong("updatedAtMillis") ?: 0L
+        )
+    }
+
     private fun ReadableMap.getStringOrEmpty(key: String): String =
     if (hasKey(key) && !isNull(key)) getString(key) ?: "" else ""
 
@@ -276,5 +379,12 @@ class AlarmModule(private val reactContext: ReactApplicationContext) : ReactCont
           // Should not happen; provide best-effort
           Instant.now().toString()
         }
+    }
+
+    private fun emitChanged() {
+        val params = Arguments.createArray() // lightweight “changed” event
+        reactCtx
+            .getJSModule(com.facebook.react.modules.core.DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+            .emit("alarmsChanged", params)
     }
 }

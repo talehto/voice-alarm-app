@@ -1,96 +1,292 @@
 // src/features/alarms/state/AlarmsContext.tsx
-import React, { createContext, useContext, useEffect, useMemo, useReducer } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { NativeEventEmitter, NativeModules } from "react-native";
+import { useAuth } from "../../auth/AuthContext";
+import { saveAlarmRemote, deleteAlarmRemote, type RemoteAlarm } from "../sync/remoteApi";
 
-// --- Types ---
+/* ----------------------------- Types & helpers ----------------------------- */
+
 export type AlarmType = "single" | "weekly";
-
 export type TtsLang = "fi-FI" | "en-US";
 
-export type WeeklySpec = {
-  daysMask: number;                     // bitmask Sun..Sat = bit0..bit6
-  timeOfDay: { hour: number; minute: number };
-};
-
-export type SingleSpec = {
-  dateTime: string;                     // ISO string
-};
+export type TimeOfDay = { hour: number; minute: number };
+export type WeeklySpec = { daysMask: number; timeOfDay: TimeOfDay };
+export type SingleSpec = { dateTime: string; dateTimeMillis?: number };
 
 export type Alarm = {
+  // Local (Room) identity
   id: number;
+  // Firestore identity
+  remoteId?: string;
+  // Ownership/targeting
+  ownerUid: string;
+  targetUid: string;
+
   type: AlarmType;
   title: string;
   text: string;
+  ttsLang: TtsLang;
   enabled: boolean;
-  ttsLang: TtsLang;                
-  weekly?: WeeklySpec;
+
   single?: SingleSpec;
+  weekly?: WeeklySpec;
+
+  updatedAtMillis: number;
 };
 
-// --- Native bridge (thin wrapper) ---
-const mod = NativeModules.AlarmModule;
-if (!mod) throw new Error("AlarmModule not linked");
-
-const AlarmNative = {
-  getAll(): Promise<Alarm[]> { return mod.getAll(); },
-  add(a: Omit<Alarm, "id" | "enabled"> & { enabled?: boolean; id?: number }): Promise<number> { return mod.add(a); },
-  update(a: Alarm): Promise<void> { return mod.update(a); },
-  remove(id: number): Promise<void> { return mod.remove(id); },
-  setEnabled(id: number, enabled: boolean): Promise<void> { return mod.setEnabled(id, enabled); },
-  emitter: new NativeEventEmitter(mod),
-  EVENTS: { CHANGED: "alarmsChanged" },
+type State = {
+  loading: boolean;
+  loaded: boolean;
+  alarms: Alarm[];
 };
 
-// --- Context ---
-type State = { alarms: Alarm[]; loaded: boolean };
-type Action = { type: "SET_ALL"; payload: Alarm[] } | { type: "LOADED" };
-
-const Ctx = createContext<{
+type CtxApi = {
   state: State;
-  add(a: Omit<Alarm, "id" | "enabled"> & { enabled?: boolean; id?: number }): Promise<number>;
-  update(a: Alarm): Promise<void>;
-  remove(id: number): Promise<void>;
+  add: (a: {
+    type: AlarmType;
+    title: string;
+    text: string;
+    ttsLang: TtsLang;
+    enabled?: boolean;
+    single?: { dateTime: string };
+    weekly?: { daysMask: number; timeOfDay: TimeOfDay };
+  }) => Promise<string>; // returns remoteId
+  update: (a: Alarm) => Promise<void>;
+  remove: (idOrRemoteId: number | string) => Promise<void>;
   setEnabled: (id: number, enabled: boolean) => Promise<void>;
-} | null>(null);
+};
 
-function reducer(s: State, a: Action): State {
-  switch (a.type) {
-    case "SET_ALL": return { ...s, alarms: a.payload };
-    case "LOADED":  return { ...s, loaded: true };
-    default:        return s;
-  }
+const Ctx = createContext<CtxApi | null>(null);
+
+/* ----------------------------- Native bridge ------------------------------ */
+
+type AlarmModuleType = {
+  getAll: () => Promise<any[]>; // returns rows from Room
+  upsertFromRemote: (rows: any[]) => Promise<void>;
+  replaceAllForUser: (uid: string, rows: any[]) => Promise<void>;
+};
+const { AlarmModule } = NativeModules as { AlarmModule: AlarmModuleType };
+
+/* ------------------------- Mapping Room -> UI shape ------------------------ */
+
+function mapNativeRow(row: any): Alarm {
+  const type: AlarmType = row.type === "weekly" ? "weekly" : "single";
+  const singleMillis = row.singleDateTimeMillis ?? null;
+
+  return {
+    id: row.id,
+    remoteId: row.remoteId ?? undefined,
+    ownerUid: row.ownerUid || "",
+    targetUid: row.targetUid || "",
+    type,
+    title: row.title || "",
+    text: row.text || "",
+    ttsLang: (row.ttsLang || "fi-FI") as TtsLang,
+    enabled: !!row.enabled,
+    single:
+      type === "single"
+        ? {
+            dateTimeMillis: singleMillis ?? undefined,
+            dateTime: singleMillis ? new Date(singleMillis).toISOString() : new Date().toISOString(),
+          }
+        : undefined,
+    weekly:
+      type === "weekly"
+        ? {
+            daysMask: row.weeklyDaysMask ?? 0,
+            timeOfDay: {
+              hour: row.weeklyHour ?? 7,
+              minute: row.weeklyMinute ?? 0,
+            },
+          }
+        : undefined,
+    updatedAtMillis: row.updatedAtMillis ?? 0,
+  };
 }
 
-export const AlarmsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [state, dispatch] = useReducer(reducer, { alarms: [], loaded: false });
+/* -------------------------------- Provider -------------------------------- */
 
-  // initial load
-  useEffect(() => {
-    let mounted = true;
-    AlarmNative.getAll()
-      .then(rows => mounted && dispatch({ type: "SET_ALL", payload: rows }))
-      .finally(() => mounted && dispatch({ type: "LOADED" }));
-    return () => { mounted = false; };
-  }, []);
+export function AlarmsProvider({ children }: { children: React.ReactNode }) {
+  const { state: auth } = useAuth();
+  const uid = auth.user?.uid ?? null;
 
-  // live updates from native
+  const [state, setState] = useState<State>({ loading: true, loaded: false, alarms: [] });
+
+  const refreshFromNative = useCallback(async () => {
+    try {
+      console.log("AlarmsProvider before AlarmModule.getAll()")
+      const rows = (await AlarmModule.getAll()) || [];
+      console.log("AlarmsProvider after AlarmModule.getAll()")
+      const mapped = rows.map(mapNativeRow);
+      // If you want to scope by current user (in case getAll returns all):
+      const filtered = uid ? mapped.filter((a) => a.targetUid === uid) : mapped;
+      setState({ loading: false, loaded: true, alarms: filtered });
+    } catch (_e) {
+      console.log("AlarmsProvider EXCEPTION: " + _e)
+      setState((s) => ({ ...s, loading: false, loaded: true }));
+    }
+  }, [uid]);
+
+  // Initial load & subscribe to native "alarmsChanged" to keep UI in sync
   useEffect(() => {
-    const sub = AlarmNative.emitter.addListener(AlarmNative.EVENTS.CHANGED, (rows: Alarm[]) => {
-      dispatch({ type: "SET_ALL", payload: rows });
+    setState((s) => ({ ...s, loading: true, loaded: false }));
+    refreshFromNative();
+
+    const emitter = new NativeEventEmitter(NativeModules.AlarmModule);
+    const sub = emitter.addListener("alarmsChanged", () => {
+      refreshFromNative();
     });
-    return () => sub.remove();
-  }, []);
+    return () => {
+      try { sub.remove(); } catch {}
+    };
+  }, [refreshFromNative]);
 
-  const api = useMemo(() => ({
-    state,
-    add:  (a: Omit<Alarm, "id" | "enabled"> & { enabled?: boolean; id?: number }) => AlarmNative.add(a),
-    update: (a: Alarm) => AlarmNative.update(a),
-    remove: (id: number) => AlarmNative.remove(id),
-    setEnabled: (id: number, enabled: boolean) => AlarmNative.setEnabled(id, enabled),
-  }), [state]);
+  // When user switches accounts, refresh list (Room gets replaced by Firestore listener from AuthProvider)
+  useEffect(() => {
+    setState((s) => ({ ...s, loading: true, loaded: false }));
+    refreshFromNative();
+  }, [uid, refreshFromNative]);
 
-  return <Ctx.Provider value={api}>{children}</Ctx.Provider>;
-};
+  /* ------------------------------- Actions -------------------------------- */
+
+  const add: CtxApi["add"] = useCallback(
+    async (a) => {
+      console.log("AlarmsContext.add() start");
+      if (!uid) throw new Error("Not signed in");
+
+      const payload: RemoteAlarm = {
+        ownerUid: uid,
+        targetUid: uid, // extend later for grants
+        type: a.type,
+        title: a.title,
+        text: a.text,
+        ttsLang: a.ttsLang,
+        enabled: a.enabled ?? true,
+        singleDateTimeMillis: a.type === "single" ? Date.parse(a.single!.dateTime) : null,
+        weeklyDaysMask: a.type === "weekly" ? a.weekly!.daysMask : null,
+        weeklyHour: a.type === "weekly" ? a.weekly!.timeOfDay.hour : null,
+        weeklyMinute: a.type === "weekly" ? a.weekly!.timeOfDay.minute : null,
+      };
+
+      console.log("AlarmsContext.add() calling saveAlarmRemote");
+      const remoteId = await saveAlarmRemote(uid, payload);
+      console.log("AlarmsContext.add() saveAlarmRemote completed, remoteId:", remoteId);
+
+      try {
+        // Optional optimistic mirror so UI updates immediately (snapshot will confirm shortly)
+        console.log("AlarmsContext.add() calling AlarmModule.upsertFromRemote");
+        await AlarmModule.upsertFromRemote([
+          {
+            ...payload,
+            remoteId,
+            updatedAtMillis: Date.now(),
+          },
+        ]);
+        console.log("AlarmsContext.add() AlarmModule.upsertFromRemote completed");
+
+        // Pull fresh (in case DAO preserved local IDs etc.)
+        console.log("AlarmsContext.add() calling refreshFromNative");
+        await refreshFromNative();
+        console.log("AlarmsContext.add() refreshFromNative completed");
+        
+        return remoteId;
+      } catch (error) {
+        console.error("AlarmsContext.add() error in native operations:", error);
+        // Still return the remoteId even if native operations fail
+        // The Firestore listener will eventually sync the data
+        return remoteId;
+      }
+    },
+    [uid, refreshFromNative]
+  );
+
+  const update: CtxApi["update"] = useCallback(
+    async (a) => {
+      if (!uid) throw new Error("Not signed in");
+      const payload: RemoteAlarm = {
+        remoteId: a.remoteId,
+        ownerUid: a.ownerUid || uid,
+        targetUid: a.targetUid || uid,
+        type: a.type,
+        title: a.title,
+        text: a.text,
+        ttsLang: a.ttsLang,
+        enabled: a.enabled,
+        singleDateTimeMillis: a.type === "single" ? (a.single?.dateTime ? Date.parse(a.single.dateTime) : null) : null,
+        weeklyDaysMask: a.type === "weekly" ? a.weekly?.daysMask ?? null : null,
+        weeklyHour: a.type === "weekly" ? a.weekly?.timeOfDay?.hour ?? null : null,
+        weeklyMinute: a.type === "weekly" ? a.weekly?.timeOfDay?.minute ?? null : null,
+      };
+      const id = await saveAlarmRemote(uid, payload);
+
+      await AlarmModule.upsertFromRemote([
+        { ...payload, remoteId: id, updatedAtMillis: Date.now() },
+      ]);
+
+      await refreshFromNative();
+    },
+    [uid, refreshFromNative]
+  );
+
+  const remove: CtxApi["remove"] = useCallback(
+    async (idOrRemoteId) => {
+      if (!uid) throw new Error("Not signed in");
+
+      let remoteId: string | undefined;
+      if (typeof idOrRemoteId === "string") {
+        remoteId = idOrRemoteId;
+      } else {
+        const hit = state.alarms.find((x) => x.id === idOrRemoteId);
+        remoteId = hit?.remoteId;
+      }
+      if (!remoteId) throw new Error("Alarm not found");
+
+      await deleteAlarmRemote(uid, remoteId);
+      // Let snapshot update Room → native emitter will refresh us.
+    },
+    [uid, state.alarms]
+  );
+
+  const setEnabled: CtxApi["setEnabled"] = useCallback(
+    async (id, enabled) => {
+      if (!uid) throw new Error("Not signed in");
+      const a = state.alarms.find((x) => x.id === id);
+      if (!a?.remoteId) return;
+
+      const payload: RemoteAlarm = {
+        remoteId: a.remoteId,
+        ownerUid: a.ownerUid || uid,
+        targetUid: a.targetUid || uid,
+        type: a.type,
+        title: a.title,
+        text: a.text,
+        ttsLang: a.ttsLang,
+        enabled,
+        singleDateTimeMillis: a.type === "single" ? (a.single?.dateTime ? Date.parse(a.single.dateTime) : null) : null,
+        weeklyDaysMask: a.type === "weekly" ? a.weekly?.daysMask ?? null : null,
+        weeklyHour: a.type === "weekly" ? a.weekly?.timeOfDay?.hour ?? null : null,
+        weeklyMinute: a.type === "weekly" ? a.weekly?.timeOfDay?.minute ?? null : null,
+      };
+
+      await saveAlarmRemote(uid, payload);
+      // Optimistic local update:
+      await AlarmModule.upsertFromRemote([
+        { ...payload, updatedAtMillis: Date.now() },
+      ]);
+      await refreshFromNative();
+    },
+    [uid, state.alarms, refreshFromNative]
+  );
+
+  const value = useMemo<CtxApi>(
+    () => ({ state, add, update, remove, setEnabled }),
+    [state, add, update, remove, setEnabled]
+  );
+
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+}
+
+/* ---------------------------------- Hook ---------------------------------- */
 
 export function useAlarms() {
   const ctx = useContext(Ctx);

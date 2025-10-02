@@ -12,8 +12,13 @@ object AlarmScheduler {
     private const val SAFETY_MS = 2_000L // 2s buffer
 
     fun schedule(context: Context, alarm: AlarmEntity) {
+        android.util.Log.d("AlarmScheduler", "Scheduling alarm: ${alarm.title}, enabled: ${alarm.enabled}, type: ${alarm.type}")
+        
         cancel(context, alarm.id)
-        if (!alarm.enabled) return
+        if (!alarm.enabled) {
+            android.util.Log.d("AlarmScheduler", "Alarm disabled, not scheduling")
+            return
+        }
 
         val now = System.currentTimeMillis()
         val triggerAt = when (alarm.type) {
@@ -26,12 +31,19 @@ object AlarmScheduler {
             else -> return
         }
 
-        // Hard stop: never schedule “now/past”
-        if (triggerAt <= now + SAFETY_MS) return
+        android.util.Log.d("AlarmScheduler", "Trigger time: $triggerAt, now: $now, diff: ${triggerAt - now}ms")
+
+        // Hard stop: never schedule "now/past"
+        if (triggerAt <= now + SAFETY_MS) {
+            android.util.Log.w("AlarmScheduler", "Alarm time is in the past or too close, not scheduling")
+            return
+        }
 
         val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val pi = pendingIntent(context, alarm.id)
         am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi)
+        
+        android.util.Log.d("AlarmScheduler", "Alarm scheduled successfully for ${java.util.Date(triggerAt)}")
     }
 
     fun cancel(context: Context, alarmId: Int) {

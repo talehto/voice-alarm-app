@@ -1,11 +1,12 @@
 // src/features/alarms/screens/AlarmCreateScreen.tsx
 import React, { useMemo, useState } from "react";
-import { View, Text, TextInput, Button, StyleSheet, Platform, TouchableOpacity } from "react-native";
+import { View, Text, TextInput, Button, StyleSheet, Platform, TouchableOpacity, Alert } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Picker } from "@react-native-picker/picker";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../../../navigation/AppNavigator";
 import { useAlarms, Alarm, AlarmType } from "../state/AlarmsContext";
+import { ensureNotificationsPermission } from "../../../utils/permissions";
 
 // ===== Language config (easily extend here) =====
 type TtsLang = "fi-FI" | "en-US"; // extend as needed
@@ -55,6 +56,7 @@ export default function AlarmCreateScreen({ navigation, route }: Props) {
   const [weeklyMinute, setWeeklyMinute] = useState(initMinute);
   const [daysMask, setDaysMask] = useState(initMask);
   const [showWeeklyTimePicker, setShowWeeklyTimePicker] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const onPickDate = (_: any, d?: Date) => {
     setShowDatePicker(Platform.OS === "ios");
@@ -70,47 +72,74 @@ export default function AlarmCreateScreen({ navigation, route }: Props) {
   };
 
   const handleSave = async () => {
-    if (!title.trim()) { alert("Please enter a title"); return; }
-
-    // ensure notifications (Android 13+) – optional if you already call elsewhere
-    // const ok = await ensureNotificationsPermission();
-
-    if (type === "single") {
-      let dt = singleDate;
-      const now = new Date();
-      if (dt.getTime() <= now.getTime() + 2000) {
-        dt = new Date(dt.getTime() + 24 * 60 * 60 * 1000); // push to tomorrow
-      }
-      const payload = {
-        type: "single" as const,
-        title,
-        text,
-        enabled: true,
-        ttsLang: ttsLang as TtsLang,
-        single: { dateTime: dt.toISOString() },
-      };
-      if (editMode && editingAlarm) {
-        await update({ ...editingAlarm, ...payload });
-      } else {
-        await add(payload as any);
-      }
-    } else {
-      if (daysMask === 0) { alert("Select at least one weekday"); return; }
-      const payload = {
-        type: "weekly" as const,
-        title,
-        text,
-        enabled: true,
-        ttsLang: ttsLang as TtsLang,
-        weekly: { daysMask, timeOfDay: { hour: weeklyHour, minute: weeklyMinute } },
-      };
-      if (editMode && editingAlarm) {
-        await update({ ...editingAlarm, ...payload });
-      } else {
-        await add(payload as any);
-      }
+    if (!title.trim()) { 
+      Alert.alert("Error", "Please enter a title"); 
+      return; 
     }
-    navigation.goBack();
+
+    if (saving) {
+      return; // Prevent multiple saves
+    }
+
+    setSaving(true);
+
+    try {
+      // ensure notifications (Android 13+) – required for alarm notifications
+      const ok = await ensureNotificationsPermission();
+      if (!ok) {
+        Alert.alert("Permission Required", "Notification permission is required for alarms to work properly. Please enable it in settings.");
+        setSaving(false);
+        return;
+      }
+
+      if (type === "single") {
+        let dt = singleDate;
+        const now = new Date();
+        if (dt.getTime() <= now.getTime() + 2000) {
+          dt = new Date(dt.getTime() + 24 * 60 * 60 * 1000); // push to tomorrow
+        }
+        const payload = {
+          type: "single" as const,
+          title,
+          text,
+          enabled: true,
+          ttsLang: ttsLang as TtsLang,
+          single: { dateTime: dt.toISOString() },
+        };
+        if (editMode && editingAlarm) {
+          await update({ ...editingAlarm, ...payload });
+        } else {
+          await add(payload as any);
+        }
+      } else {
+        if (daysMask === 0) { 
+          Alert.alert("Error", "Select at least one weekday"); 
+          setSaving(false);
+          return; 
+        }
+        const payload = {
+          type: "weekly" as const,
+          title,
+          text,
+          enabled: true,
+          ttsLang: ttsLang as TtsLang,
+          weekly: { daysMask, timeOfDay: { hour: weeklyHour, minute: weeklyMinute } },
+        };
+        if (editMode && editingAlarm) {
+          await update({ ...editingAlarm, ...payload });
+        } else {
+          await add(payload as any);
+        }
+      }
+      
+      // Only navigate back if save was successful
+      navigation.goBack();
+    } catch (error) {
+      console.error("Failed to save alarm:", error);
+      Alert.alert("Error", `Failed to save alarm: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -203,8 +232,17 @@ export default function AlarmCreateScreen({ navigation, route }: Props) {
       )}
 
       <View style={styles.actions}>
-        <Button title="Save" onPress={handleSave} />
-        <Button title="Cancel" color="red" onPress={() => navigation.goBack()} />
+        <Button 
+          title={saving ? "Saving..." : "Save"} 
+          onPress={handleSave} 
+          disabled={saving}
+        />
+        <Button 
+          title="Cancel" 
+          color="red" 
+          onPress={() => navigation.goBack()} 
+          disabled={saving}
+        />
       </View>
     </View>
   );

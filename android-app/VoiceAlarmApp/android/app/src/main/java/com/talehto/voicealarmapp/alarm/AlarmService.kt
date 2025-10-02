@@ -23,6 +23,7 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
     private var currentAlarm: AlarmEntity? = null
     private var initialized = false
     private var wakeLock: PowerManager.WakeLock? = null
+    private var foregroundStarted = false
 
     // Utterance tracking
     private val utteranceCompletions = mutableMapOf<String, CompletableDeferred<Unit>>()
@@ -31,6 +32,7 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
     private var focusRequest: android.media.AudioFocusRequest? = null
 
     override fun onCreate() {
+        android.util.Log.d("AlarmService", "start to execute onCreate")
         super.onCreate()
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "voicealarm:tts").apply { setReferenceCounted(false) }
@@ -63,12 +65,31 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        android.util.Log.d("AlarmService", "start to execute onStartCommand")
         when (intent?.action) {
             ACTION_START -> {
                 val id = intent.getIntExtra(AlarmReceiver.EXTRA_ALARM_ID, -1)
+                android.util.Log.d("AlarmService", "read id from intent: ${id}")
+                // Start foreground IMMEDIATELY with a placeholder notification to satisfy the 5s rule
+                if (!foregroundStarted) {
+                    try {
+                        startForeground(NOTIF_ID, buildBootNotification())
+                        foregroundStarted = true
+                    } catch (e: Exception) {
+                        android.util.Log.e("AlarmService", "Failed to startForeground early: ${e.message}")
+                    }
+                }
                 if (id != -1) scope.launch { handleStart(id) }
             }
-            ACTION_STOP -> stopSelf()
+            ACTION_STOP -> {
+                try {
+                    // Notify any UI to close
+                    val ui = Intent(ACTION_UI_STOP)
+                    ui.setPackage(packageName)
+                    sendBroadcast(ui)
+                } catch (_: Exception) {}
+                stopSelf()
+            }
         }
         return START_NOT_STICKY
     }
@@ -79,12 +100,11 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
         val alarm = dao.getAllOnce().firstOrNull { it.id == alarmId } ?: run { stopSelf(); return }
         currentAlarm = alarm
 
-        // Start foreground immediately
+        // Update foreground notification with alarm details
         startForeground(NOTIF_ID, buildNotification(alarm))
 
-        if (isAppInForeground() || isScreenOn()) {
-            launchStopActivity(alarm)
-        }
+        // Always launch stop UI; full-screen intent + flags handle locked screen
+        launchStopActivity(alarm)
 
         // Speak 5 times
         speakFiveTimes(alarm)
@@ -154,14 +174,41 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
         }
         return builder.build()
     }
+
+    private fun buildBootNotification(): Notification {
+        val stopIntent = Intent(this, AlarmService::class.java).apply { action = ACTION_STOP }
+        val stopPending = PendingIntent.getService(
+            this, 0, stopIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("Alarm")
+            .setContentText("Preparing alarm…")
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setOnlyAlertOnce(true)
+            .setOngoing(true)
+            .setDefaults(0)
+            .addAction(NotificationCompat.Action(0, "Stop", stopPending))
+
+        if (Build.VERSION.SDK_INT >= 31) {
+            builder.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE)
+        }
+        return builder.build()
+    }
             
     private suspend fun speakFiveTimes(alarm: AlarmEntity) = withContext(Dispatchers.Main) {
+        android.util.Log.d("AlarmService", "speakFiveTimes started for alarm: ${alarm.title}")
+        
         // Wait for TTS init if needed
         var tries = 0
         while (!initialized && tries < 20) {
             delay(100)
             tries++
         }
+        
+        android.util.Log.d("AlarmService", "TTS initialized after $tries tries: $initialized")
 
         val ok = setLanguageFor(alarm.ttsLang)
         if (!ok) {
@@ -216,13 +263,22 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
         val params = Bundle().apply {
             putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId)
         }
-        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
+        
+        android.util.Log.d("AlarmService", "Speaking text: '$text' with utteranceId: $utteranceId")
+        val result = tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
+        android.util.Log.d("AlarmService", "TTS speak result: $result")
         
         return utteranceId
     }
 
     override fun onInit(status: Int) {
         initialized = (status == TextToSpeech.SUCCESS)
+        android.util.Log.d("AlarmService", "TTS onInit status: $status, initialized: $initialized")
+        
+        if (status != TextToSpeech.SUCCESS) {
+            android.util.Log.e("AlarmService", "TTS initialization failed with status: $status")
+        }
+        
         tts?.setAudioAttributes(
             AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_ALARM)
@@ -292,6 +348,7 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
     companion object {
         const val ACTION_START = "com.talehto.voicealarmapp.alarm.ACTION_START"
         const val ACTION_STOP = "com.talehto.voicealarmapp.alarm.ACTION_STOP"
+        const val ACTION_UI_STOP = "com.talehto.voicealarmapp.alarm.ACTION_UI_STOP"
         const val CHANNEL_ID = "alarms_silent"
         const val NOTIF_ID = 4041
     }

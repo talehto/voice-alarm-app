@@ -1,6 +1,7 @@
 // src/features/auth/AuthContext.tsx
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Alert } from 'react-native';
+import { attachAlarmsListener } from '../alarms/sync/remoteSync';
 
 // RN Firebase (modular APIs)
 import { getApp } from '@react-native-firebase/app';
@@ -64,20 +65,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     profileLoaded: false,
   });
 
+  useEffect(() => {
+    console.log("state.user.uid: " + state.user?.uid)
+    if (!state.user?.uid) return;
+    const stop = attachAlarmsListener(state.user.uid);
+    return () => { try { stop && stop(); } catch {} };
+  }, [state.user?.uid]);
+
   // Subscribe to auth -> then subscribe to user doc
   useEffect(() => {
     const unsubAuth = onAuthStateChanged(auth, (user) => {
       if (!user) {
+        console.log("AuthContext after onAuthStateChanged no user")
         setState({ authLoading: false, user: null, profile: null, profileLoaded: false });
         return;
       }
 
       // we have a user; reset and start listening for their profile
+      console.log("AuthContext we have a user. Reset and start listening for their profile")
       setState((s) => ({ ...s, authLoading: false, user, profileLoaded: false }));
 
       const unsubUser = onSnapshot(
         doc(db, `users/${user.uid}`),
         (snap) => {
+          console.log("AuthContext user data retrieved")
           setState((s) => ({
             ...s,
             profile: (snap.data() as UserDoc) ?? null,
@@ -85,6 +96,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }));
         },
         (_err) => {
+          console.log("AuthContext retrieved user data failed")
           setState((s) => ({ ...s, profile: null, profileLoaded: true }));
         }
       );
