@@ -79,6 +79,7 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
                         android.util.Log.e("AlarmService", "Failed to startForeground early: ${e.message}")
                     }
                 }
+                // handleStart is a suspend function, so launch it in a coroutine.
                 if (id != -1) scope.launch { handleStart(id) }
             }
             ACTION_STOP -> {
@@ -197,7 +198,10 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
         }
         return builder.build()
     }
-            
+
+    // withContext is an entry point for coroutines. All suspend methods of the coroutines must be called inside withContext.
+    // This method interacts with Android framework components (TextToSpeech, AudioManager). 
+    // These are safest to do on the main thread.
     private suspend fun speakFiveTimes(alarm: AlarmEntity) = withContext(Dispatchers.Main) {
         android.util.Log.d("AlarmService", "speakFiveTimes started for alarm: ${alarm.title}")
         
@@ -216,27 +220,27 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
             setLanguageFor("fi-FI")
         }
 
-        // Acquire transient focus
-        //NOTE: App works without this optimization.
-        //TODO: Find out whether this is needed.
-        if (Build.VERSION.SDK_INT >= 26) {
-            val req = android.media.AudioFocusRequest.Builder(android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
-                .setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ALARM)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                        .build()
-                ).build()
-            if (audioManager.requestAudioFocus(req) == android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
-                focusRequest = req
+        val needFocus = audioManager.isMusicActive
+        if (needFocus) {
+            if (Build.VERSION.SDK_INT >= 26) {
+                val req = android.media.AudioFocusRequest.Builder(android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+                    .setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_ALARM)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                            .build()
+                    ).build()
+                if (audioManager.requestAudioFocus(req) == android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+                    focusRequest = req
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                audioManager.requestAudioFocus(
+                    null,
+                    android.media.AudioManager.STREAM_MUSIC,
+                    android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
+                )
             }
-        } else {
-            @Suppress("DEPRECATION")
-            audioManager.requestAudioFocus(
-                null,
-                android.media.AudioManager.STREAM_MUSIC,
-                android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
-            )
         }
 
         val txt = alarm.text.ifBlank { alarm.title.ifBlank { "Alarm" } }
@@ -257,6 +261,7 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
 
     private fun say(text: String): String {
         val utteranceId = UUID.randomUUID().toString()
+        // This deferred is coroutine completion token. 
         val deferred = CompletableDeferred<Unit>()
         utteranceCompletions[utteranceId] = deferred
         
