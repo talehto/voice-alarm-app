@@ -334,17 +334,8 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
     // AlarmService.kt – add inside class
     private fun setLanguageFor(code: String?): Boolean {
         val tag = (code ?: "fi-FI").ifBlank { "fi-FI" }
-        val locale = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            Locale.forLanguageTag(tag)
-        } else {
-            // Fallback parsing
-            val parts = tag.split("-")
-            when (parts.size) {
-                1 -> Locale(parts[0])
-                2 -> Locale(parts[0], parts[1])
-                else -> Locale("fi", "FI")
-            }
-        }
+        val locale = Locale.forLanguageTag(tag).takeIf { it.language.isNotBlank() }
+            ?: Locale.Builder().setLanguage("fi").setRegion("FI").build()
         android.util.Log.d("AlarmService", "setLanguageFor: code=" + tag + ", locale=" + locale.toString())
         val res = tts?.setLanguage(locale)
         return res != TextToSpeech.LANG_MISSING_DATA && res != TextToSpeech.LANG_NOT_SUPPORTED
