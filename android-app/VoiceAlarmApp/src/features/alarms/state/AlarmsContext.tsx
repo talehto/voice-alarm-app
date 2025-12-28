@@ -5,6 +5,10 @@ import { useAuth } from "../../auth/AuthContext";
 import { saveAlarmRemote, deleteAlarmRemote, type RemoteAlarm } from "../sync/remoteApi";
 
 /* ----------------------------- Types & helpers ----------------------------- */
+// This context file defines the alarms “data layer” for the React Native UI. 
+// It creates a React context that loads alarms from the native Room database, 
+// keeps them in sync with Firestore, and exposes actions 
+// (add/update/remove/enable) to the rest of the app.
 
 export type AlarmType = "single" | "weekly";
 export type TtsLang = "fi-FI" | "en-US";
@@ -40,6 +44,8 @@ type State = {
   alarms: Alarm[];
 };
 
+// CtxApi is just the TypeScript shape of what the context provides. 
+// AlarmsProvider actually creates those functions/state and passes them into the context.
 type CtxApi = {
   state: State;
   add: (a: {
@@ -149,6 +155,12 @@ export function AlarmsProvider({ children }: { children: React.ReactNode }) {
 
   /* ------------------------------- Actions -------------------------------- */
 
+  // This method do following things:
+  // 1. Build a payload (the alarm fields to store).
+  // 2. saveAlarmRemote(uid, payload) writes the alarm to Firebase/Firestore and returns a remoteId.
+  // 3. Then it calls AlarmModule.upsertFromRemote([...]) with the same payload + remoteId + updatedAtMillis 
+  //    as an optimistic local mirror so the UI updates immediately.
+  // 4. Finally, it calls refreshFromNative() to pull fresh data from Room database to ensure UI is in sync.
   const add: CtxApi["add"] = useCallback(
     async (a) => {
       console.log("AlarmsContext.add() start");
@@ -186,6 +198,8 @@ export function AlarmsProvider({ children }: { children: React.ReactNode }) {
 
         // Pull fresh (in case DAO preserved local IDs etc.)
         console.log("AlarmsContext.add() calling refreshFromNative");
+        // This is done here to ensure that the newly added alarm appears in the UI immediately.
+        // This is needed to get preserve or assign stable local IDs.
         await refreshFromNative();
         console.log("AlarmsContext.add() refreshFromNative completed");
         

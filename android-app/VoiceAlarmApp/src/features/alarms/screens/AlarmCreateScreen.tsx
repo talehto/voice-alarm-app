@@ -16,12 +16,27 @@ const SUPPORTED_LANGUAGES: Array<{ code: TtsLang | string; label: string }> = [
 ];
 
 const dayLabels = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+// Functionality of togleBit method:
+// That function defines a helper to flip a specific bit in a bitmask:
+// 1 << bit creates a value with only the bit position set (e.g., bit 0 → 1, bit 3 → 8).
+// mask ^ (1 << bit) uses XOR to toggle that bit: if it was 1 it becomes 0, 
+// if it was 0 it becomes 1, all other bits stay the same.
+// Examples:
+// toggleBit(0000, 0) = 0001 OK
+// toggleBit(0001, 0) = 0000 OK
+// toggleBit(0101, 2) = 0001 OK
+// toggleBit(0101, 1) = 0111 OK
+// toggleBit(1000, 3) = 0000 OK
 const toggleBit = (mask: number, bit: number) => (mask ^ (1 << bit));
+
+// This function defines a helper to check if a specific bit is set in a bitmask.
+// E.g. hasBit(0b0101, 2) → true, and hasBit(0b0101, 1) → false.
 const hasBit = (mask: number, bit: number) => ((mask >> bit) & 1) === 1;
 
 type Props = NativeStackScreenProps<RootStackParamList, "AlarmCreate">;
 
 export default function AlarmCreateScreen({ navigation, route }: Props) {
+  // Methods of AlarmContext to add/update alarms
   const { add, update } = useAlarms();
   const editingAlarm = route.params?.alarm as Alarm | undefined;
   const editMode = route.params?.editMode ?? false;

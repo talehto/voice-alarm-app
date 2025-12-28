@@ -77,6 +77,13 @@ class AlarmModule(private val reactCtx: ReactApplicationContext) : ReactContextB
     }
 
     // ---- NEW: incremental upsert (subsequent snapshots) ----
+    // Function call from JS in converted by NativeModules to ReadableArray.
+    // Functionality of this method:
+    // In the first line, .toEntityFromRemote() converts that map into an AlarmEntity.
+    // In the "add alarm" case, size of the list is 1.
+    // In the "multiple alarms" case (e.g. initial sync), size can be >1.
+    // Then, dao.upsertAllByRemote(list) inserts or updates the rows based on remoteId.
+    // Finally, we schedule or cancel alarms based on the enabled flag.
     @ReactMethod
     fun upsertFromRemote(arr: ReadableArray, promise: Promise)  {
         scope.launch {
@@ -325,6 +332,10 @@ class AlarmModule(private val reactCtx: ReactApplicationContext) : ReactContextB
     }
 
     // Map Firestore-shaped object to AlarmEntity
+    // This "ReadableMap.toEntityFromRemote" function declaration is extension function syntax in Kotlin.
+    // It means:
+    // Define a function as if it belongs to ReadableMap, without changing the class itself.
+    // Inside the function, "this" refers to the ReadableMap instance.
     private fun ReadableMap.toEntityFromRemote(): AlarmEntity {
         fun optString(key: String, def: String? = null) =
             if (hasKey(key) && !isNull(key)) getString(key) else def

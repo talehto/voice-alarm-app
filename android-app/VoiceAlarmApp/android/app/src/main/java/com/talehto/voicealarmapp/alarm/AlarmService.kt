@@ -35,6 +35,7 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
         android.util.Log.d("AlarmService", "start to execute onCreate")
         super.onCreate()
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        // wakeLock is used to keep device active during TTS playback (= prevent sleeping during speech).
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "voicealarm:tts").apply { setReferenceCounted(false) }
     wakeLock?.acquire(10 * 60 * 1000L)
         createChannel()
