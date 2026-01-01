@@ -118,6 +118,12 @@ export function AlarmsProvider({ children }: { children: React.ReactNode }) {
 
   const [state, setState] = useState<State>({ loading: true, loaded: false, alarms: [] });
 
+  // useCallback is a React hook that memoizes (= cache the result) a function so its identity stays stable between 
+  // renders unless its dependencies change.
+  // Benefits of useCallback hook:
+  // 1. Performance Optimization: Prevents unnecessary re-creations of functions on every render. Only when uid changes.
+  // 2. Stable References: Useful when passing functions as props to child components that rely on reference equality.
+  // 3. Dependency Management: Allows you to specify dependencies, ensuring the function is updated only when necessary.
   const refreshFromNative = useCallback(async () => {
     try {
       console.log("AlarmsProvider before AlarmModule.getAll()")
@@ -135,6 +141,7 @@ export function AlarmsProvider({ children }: { children: React.ReactNode }) {
 
   // Initial load & subscribe to native "alarmsChanged" to keep UI in sync
   useEffect(() => {
+    // Below are updated loading and loaded state members.
     setState((s) => ({ ...s, loading: true, loaded: false }));
     refreshFromNative();
 

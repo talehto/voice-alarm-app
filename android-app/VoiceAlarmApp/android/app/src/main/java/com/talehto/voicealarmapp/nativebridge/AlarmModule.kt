@@ -37,18 +37,8 @@ class AlarmModule(private val reactCtx: ReactApplicationContext) : ReactContextB
     override fun initialize() {
         Log.d(TAG, "Start initialize")
         super.initialize()
-        // Optional: send initial snapshot once the module is ready.
-        scope.launch(Dispatchers.IO) {
-            try {
-                Log.d(TAG, "Before dao.getAllOnce")
-                val rows = dao.getAllOnce()
-                Log.d(TAG, "After dao.getAllOnce. Rows: ${rows}")
-                sendEvent(EVENT_ALARMS_CHANGED, rows.toWritableArray())
-                Log.d(TAG, "After sendEvent")
-            } catch (err : Exception) {
-                Log.d(TAG, "intialize ERROR: ${err}")
-            }
-        }
+        // Ping-only event: JS will refresh from native on receipt.
+        emitChanged()
     }
 
     override fun onCatalystInstanceDestroy() {
