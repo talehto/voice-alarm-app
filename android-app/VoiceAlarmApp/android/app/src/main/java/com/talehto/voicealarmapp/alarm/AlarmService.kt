@@ -136,9 +136,17 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
         val full = Intent(this, AlarmStopActivity::class.java).apply {
           putExtra(AlarmStopActivity.EXTRA_TITLE, alarm.title.ifBlank { "Alarm" })
           putExtra(AlarmStopActivity.EXTRA_TEXT,  alarm.text.ifBlank { "Alarm is ringing" })
-          addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+          addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or 
+                   Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                   Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
         }
-        startActivity(full)
+        // Try to start activity, but full-screen intent from notification is primary method
+        try {
+            startActivity(full)
+        } catch (e: Exception) {
+            android.util.Log.e("AlarmService", "Failed to start activity directly: ${e.message}")
+            // Full-screen intent from notification should handle this case
+        }
     }
 
     private fun buildNotification(alarm: AlarmEntity): Notification {
